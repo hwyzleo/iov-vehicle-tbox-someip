@@ -1,0 +1,33 @@
+[Unit]
+Description=TBOX-SOMEIP Service
+After=network-online.target
+Wants=network-online.target
+After=gnss.service rtc.service tsp.service prov.service
+Requires=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tbox-someip
+Restart=on-failure
+RestartSec=5
+WatchdogSec=30
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 安全限制
+User=tbox
+Group=tbox
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tbox-someip
+
+[Install]
+WantedBy=multi-user.target
