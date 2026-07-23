@@ -4,7 +4,6 @@ set(SOURCES
     someip_daemon.cpp
     service_discovery.cpp
     ipc_bridge.cpp
-    service_registry.cpp
     services/time_sync.cpp
     services/location.cpp
     services/net_status.cpp
@@ -19,19 +18,28 @@ add_executable(tbox-someip ${SOURCES})
 target_include_directories(tbox-someip
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
-        ${VSOMEIP_INCLUDE_DIRS}
-        ${COMMONAPI_INCLUDE_DIRS}
-        ${COMMONAPI_SOMEIP_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/src
 )
 
 # 链接库
-target_link_libraries(tbox-someip
-    PRIVATE
-        ${VSOMEIP_LIBRARIES}
-        ${COMMONAPI_LIBRARIES}
-        ${COMMONAPI_SOMEIP_LIBRARIES}
-        pthread
-)
+if(USE_MOCK_SOMEIP)
+    # 模拟实现不需要额外链接
+else()
+    target_include_directories(tbox-someip
+        PRIVATE
+            ${VSOMEIP_INCLUDE_DIRS}
+            ${COMMONAPI_INCLUDE_DIRS}
+            ${COMMONAPI_SOMEIP_INCLUDE_DIRS}
+    )
+    target_link_libraries(tbox-someip
+        PRIVATE
+            ${VSOMEIP_LIBRARIES}
+            ${COMMONAPI_LIBRARIES}
+            ${COMMONAPI_SOMEIP_LIBRARIES}
+    )
+endif()
+
+target_link_libraries(tbox-someip PRIVATE pthread)
 
 # 安装
 install(TARGETS tbox-someip

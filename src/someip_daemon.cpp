@@ -2,6 +2,62 @@
 #include <iostream>
 #include <csignal>
 
+#ifdef USE_MOCK_SOMEIP
+// Mock IPC clients for testing
+namespace {
+
+class MockRtcClient : public tbox::someip::IRtcClient {
+public:
+    bool initialize() override { return true; }
+    bool isConnected() const override { return true; }
+    void shutdown() override {}
+    tbox::someip::ErrorCode getTime(tbox::someip::TimeData& time) override {
+        time.is_valid = true;
+        return tbox::someip::ErrorCode::SUCCESS;
+    }
+    void subscribeTimeUpdates(tbox::someip::TimeUpdateCallback callback) override {}
+};
+
+class MockGnssClient : public tbox::someip::IGnssClient {
+public:
+    bool initialize() override { return true; }
+    bool isConnected() const override { return true; }
+    void shutdown() override {}
+    tbox::someip::ErrorCode getPosition(tbox::someip::PositionData& position) override {
+        position.is_valid = true;
+        return tbox::someip::ErrorCode::SUCCESS;
+    }
+    void subscribePositionUpdates(tbox::someip::PositionCallback callback) override {}
+};
+
+class MockTspClient : public tbox::someip::ITspClient {
+public:
+    bool initialize() override { return true; }
+    bool isConnected() const override { return true; }
+    void shutdown() override {}
+    tbox::someip::ErrorCode getNetStatus(tbox::someip::NetStatusData& status) override {
+        status.is_valid = true;
+        return tbox::someip::ErrorCode::SUCCESS;
+    }
+    void subscribeNetStatusChanges(tbox::someip::NetStatusCallback callback) override {}
+    void subscribeRemoteCommands(tbox::someip::RemoteCommandCallback callback) override {}
+    tbox::someip::ErrorCode reportSoftwareInventory(const tbox::someip::VehicleSoftwareSnapshot& snapshot) override {
+        return tbox::someip::ErrorCode::SUCCESS;
+    }
+    void subscribeFotaCommands(tbox::someip::FotaCommandCallback callback) override {}
+};
+
+class MockProvClient : public tbox::someip::IProvClient {
+public:
+    bool initialize() override { return true; }
+    bool isConnected() const override { return true; }
+    void shutdown() override {}
+    std::string getConfiguration(const std::string& key) override { return ""; }
+};
+
+} // anonymous namespace
+#endif // USE_MOCK_SOMEIP
+
 namespace tbox {
 namespace someip {
 
@@ -168,10 +224,18 @@ void SomeipDaemon::signalHandler(int signum) {
 }
 
 bool SomeipDaemon::initializeIpcClients() {
-    // TODO: 实现实际的 IPC 客户端初始化
-    // 这里需要创建 GNSS、RTC、TSP、PROV 客户端并注册到 IPC 桥接层
-    
     std::cout << "Initializing IPC clients..." << std::endl;
+    
+#ifdef USE_MOCK_SOMEIP
+    // Mock 模式：注册模拟的 IPC 客户端
+    std::cout << "Using mock IPC clients" << std::endl;
+    
+    ipc_bridge_->registerClient("rtc", std::make_shared<MockRtcClient>());
+    ipc_bridge_->registerClient("gnss", std::make_shared<MockGnssClient>());
+    ipc_bridge_->registerClient("tsp", std::make_shared<MockTspClient>());
+    ipc_bridge_->registerClient("prov", std::make_shared<MockProvClient>());
+#endif
+    
     return true;
 }
 
