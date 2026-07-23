@@ -7,6 +7,7 @@
 #include "services/location.h"
 #include "services/net_status.h"
 #include "services/remote_cmd_relay.h"
+#include "services/fota_relay.h"
 
 #include <memory>
 #include <atomic>
@@ -55,6 +56,7 @@ private:
     std::unique_ptr<LocationService> location_service_;
     std::unique_ptr<NetStatusService> net_status_service_;
     std::unique_ptr<RemoteCmdRelayService> remote_cmd_relay_service_;
+    std::unique_ptr<FotaRelayService> fota_relay_service_;
     
     std::atomic<bool> running_;
     static SomeipDaemon* instance_;

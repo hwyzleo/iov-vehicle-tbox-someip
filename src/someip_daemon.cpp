@@ -98,6 +98,13 @@ bool SomeipDaemon::start() {
         }
     }
     
+    if (fota_relay_service_) {
+        if (!fota_relay_service_->start()) {
+            std::cerr << "Failed to start FotaRelay service" << std::endl;
+            return false;
+        }
+    }
+    
     running_ = true;
     std::cout << "TBOX-SOMEIP daemon started successfully" << std::endl;
     return true;
@@ -127,6 +134,10 @@ void SomeipDaemon::shutdown() {
     
     if (remote_cmd_relay_service_) {
         remote_cmd_relay_service_->stop();
+    }
+    
+    if (fota_relay_service_) {
+        fota_relay_service_->stop();
     }
     
     // 停止服务发现
@@ -203,6 +214,15 @@ bool SomeipDaemon::initializeServices() {
         }
     }
     
+    // 初始化 FotaRelay 服务
+    if (config_.enable_fota_relay) {
+        fota_relay_service_ = std::make_unique<FotaRelayService>(ipc_bridge_.get());
+        if (!fota_relay_service_->initialize()) {
+            std::cerr << "Failed to initialize FotaRelay service" << std::endl;
+            return false;
+        }
+    }
+    
     std::cout << "All services initialized" << std::endl;
     return true;
 }
@@ -214,41 +234,13 @@ bool SomeipDaemon::startServiceDiscovery() {
     
     std::cout << "Starting service discovery..." << std::endl;
     
-    // 发布所有服务
-    if (time_sync_service_ && time_sync_service_->getState() == ServiceState::INITIALIZING) {
-        if (!service_discovery_->offerService(
-            time_sync_service_->getServiceId(),
-            time_sync_service_->getInstanceId())) {
-            std::cerr << "Failed to offer TimeSync service" << std::endl;
-            return false;
-        }
-    }
-    
-    if (location_service_ && location_service_->getState() == ServiceState::INITIALIZING) {
-        if (!service_discovery_->offerService(
-            location_service_->getServiceId(),
-            location_service_->getInstanceId())) {
-            std::cerr << "Failed to offer Location service" << std::endl;
-            return false;
-        }
-    }
-    
-    if (net_status_service_ && net_status_service_->getState() == ServiceState::INITIALIZING) {
-        if (!service_discovery_->offerService(
-            net_status_service_->getServiceId(),
-            net_status_service_->getInstanceId())) {
-            std::cerr << "Failed to offer NetStatus service" << std::endl;
-            return false;
-        }
-    }
-    
-    if (remote_cmd_relay_service_ && remote_cmd_relay_service_->getState() == ServiceState::INITIALIZING) {
-        if (!service_discovery_->offerService(
-            remote_cmd_relay_service_->getServiceId(),
-            remote_cmd_relay_service_->getInstanceId())) {
-            std::cerr << "Failed to offer RemoteCmdRelay service" << std::endl;
-            return false;
-        }
+    // 统一 offer TBOX-SOMEIP 聚合服务
+    if (!service_discovery_->offerService(
+        someip_addressing::SERVICE_ID,
+        someip_addressing::INSTANCE_ID))
+    {
+        std::cerr << "Failed to offer TBOX-SOMEIP service" << std::endl;
+        return false;
     }
     
     std::cout << "Service discovery started" << std::endl;
