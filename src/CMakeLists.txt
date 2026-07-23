@@ -9,6 +9,7 @@ set(SOURCES
     services/location.cpp
     services/net_status.cpp
     services/remote_cmd_relay.cpp
+    services/fota_relay.cpp
 )
 
 # 创建可执行文件
