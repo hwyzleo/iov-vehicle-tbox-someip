@@ -4,51 +4,30 @@
 #include <string>
 #include <functional>
 #include <chrono>
+#include <optional>
+#include <vector>
 
 namespace tbox {
 namespace someip {
 
-// 服务 ID 定义（草案，最终以整车服务矩阵标定为准）
-namespace service_ids {
-    constexpr uint16_t TIME_SYNC = 0x0100;
-    constexpr uint16_t LOCATION = 0x0101;
-    constexpr uint16_t NET_STATUS = 0x0102;
-    constexpr uint16_t REMOTE_CMD_RELAY = 0x0103;
-} // namespace service_ids
+// 统一服务寻址（唯一 SSOT：整车 SOME/IP Service Registry）
+namespace someip_addressing {
+    constexpr uint16_t SERVICE_ID = 0x6101;
+    constexpr uint16_t INSTANCE_ID = 0x0001;
+    constexpr uint16_t TCP_PORT = 56101;
+    constexpr uint16_t SD_PORT = 30490;
+}
 
-// 实例 ID 定义
-namespace instance_ids {
-    constexpr uint16_t DEFAULT = 0x0001;
-} // namespace instance_ids
-
-// 方法 ID 定义
+// Method ID（service-scoped，0x0001–0x7FFF）
 namespace method_ids {
-    // TimeSync
-    constexpr uint16_t GET_TIME = 0x0001;
-    
-    // Location
-    constexpr uint16_t GET_POSITION = 0x0001;
-    
-    // NetStatus
-    constexpr uint16_t GET_NET_STATUS = 0x0001;
-    
-    // RemoteCmdRelay
-    constexpr uint16_t ON_REMOTE_COMMAND = 0x0001;
+    constexpr uint16_t REPORT_SOFTWARE_INVENTORY = 0x0001;  // FOTA 上行
+    // 后续 CR 为 TimeSync/Location/NetStatus/RemoteCmdRelay 分配
 } // namespace method_ids
 
-// 事件 ID 定义
+// Event ID（service-scoped，0x8000–0xFFFF）
 namespace event_ids {
-    // TimeSync
-    constexpr uint16_t ON_TIME_UPDATE = 0x8001;
-    
-    // Location
-    constexpr uint16_t ON_POSITION = 0x8001;
-    
-    // NetStatus
-    constexpr uint16_t ON_NET_STATUS_CHANGE = 0x8001;
-    
-    // RemoteCmdRelay
-    constexpr uint16_t ON_REMOTE_COMMAND_NOTIFY = 0x8001;
+    constexpr uint16_t FOTA_COMMAND = 0x8001;  // FOTA 下行（预留）
+    // 后续 CR 为其他能力分配
 } // namespace event_ids
 
 // 时间同步数据结构
@@ -85,6 +64,30 @@ struct RemoteCommand {
     std::chrono::system_clock::time_point timestamp;
 };
 
+// 软件版本快照（复用 CGW-FOTA VehicleSoftwareSnapshot）
+struct EcuVersionEntry {
+    std::string ecu_id;
+    std::optional<std::string> part_number;
+    std::optional<std::string> sw_version;
+    std::optional<std::string> hw_version;
+    std::optional<std::string> error_code;
+};
+
+struct VehicleSoftwareSnapshot {
+    std::string vin;
+    std::string registry_version;
+    std::string collected_at;
+    uint64_t snapshot_seq;
+    std::vector<EcuVersionEntry> ecu_list;
+};
+
+// FOTA 命令（预留，待后续 CR 细化）
+struct FotaCommand {
+    std::string command_id;
+    std::string command_type;
+    std::string payload;
+};
+
 // 错误码定义
 enum class ErrorCode : uint16_t {
     SUCCESS = 0,
@@ -99,6 +102,7 @@ using TimeUpdateCallback = std::function<void(const TimeData&)>;
 using PositionCallback = std::function<void(const PositionData&)>;
 using NetStatusCallback = std::function<void(const NetStatusData&)>;
 using RemoteCommandCallback = std::function<void(const RemoteCommand&)>;
+using FotaCommandCallback = std::function<void(const FotaCommand&)>;
 
 // 服务状态
 enum class ServiceState {
