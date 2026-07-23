@@ -103,11 +103,11 @@ ServiceState TimeSyncService::getState() const {
 }
 
 uint16_t TimeSyncService::getServiceId() const {
-    return service_ids::TIME_SYNC;
+    return someip_addressing::SERVICE_ID;
 }
 
 uint16_t TimeSyncService::getInstanceId() const {
-    return instance_ids::DEFAULT;
+    return someip_addressing::INSTANCE_ID;
 }
 
 ErrorCode TimeSyncService::getTime(TimeData& time) {

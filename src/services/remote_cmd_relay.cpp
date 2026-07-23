@@ -110,11 +110,11 @@ ServiceState RemoteCmdRelayService::getState() const {
 }
 
 uint16_t RemoteCmdRelayService::getServiceId() const {
-    return service_ids::REMOTE_CMD_RELAY;
+    return someip_addressing::SERVICE_ID;
 }
 
 uint16_t RemoteCmdRelayService::getInstanceId() const {
-    return instance_ids::DEFAULT;
+    return someip_addressing::INSTANCE_ID;
 }
 
 void RemoteCmdRelayService::subscribeRemoteCommands(RemoteCommandCallback callback) {

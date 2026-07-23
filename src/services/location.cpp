@@ -103,11 +103,11 @@ ServiceState LocationService::getState() const {
 }
 
 uint16_t LocationService::getServiceId() const {
-    return service_ids::LOCATION;
+    return someip_addressing::SERVICE_ID;
 }
 
 uint16_t LocationService::getInstanceId() const {
-    return instance_ids::DEFAULT;
+    return someip_addressing::INSTANCE_ID;
 }
 
 ErrorCode LocationService::getPosition(PositionData& position) {

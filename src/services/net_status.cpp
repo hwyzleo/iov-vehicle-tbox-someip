@@ -103,11 +103,11 @@ ServiceState NetStatusService::getState() const {
 }
 
 uint16_t NetStatusService::getServiceId() const {
-    return service_ids::NET_STATUS;
+    return someip_addressing::SERVICE_ID;
 }
 
 uint16_t NetStatusService::getInstanceId() const {
-    return instance_ids::DEFAULT;
+    return someip_addressing::INSTANCE_ID;
 }
 
 ErrorCode NetStatusService::getNetStatus(NetStatusData& status) {
