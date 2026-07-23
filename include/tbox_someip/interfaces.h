@@ -52,6 +52,12 @@ public:
     
     // 订阅远程命令
     virtual void subscribeRemoteCommands(RemoteCommandCallback callback) = 0;
+    
+    // FOTA 上行：上报软件版本快照
+    virtual ErrorCode reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) = 0;
+    
+    // FOTA 下行：订阅 FOTA 命令（预留）
+    virtual void subscribeFotaCommands(FotaCommandCallback callback) = 0;
 };
 
 // PROV Client 接口
