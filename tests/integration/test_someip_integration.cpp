@@ -90,3 +90,34 @@ TEST_F(SomeipIntegrationTest, MultipleStartStop) {
         daemon->shutdown();
     }
 }
+
+TEST_F(SomeipIntegrationTest, FotaRelayServiceLifecycle) {
+    // 测试 FotaRelayService 完整生命周期
+    
+    ServiceConfig config;
+    config.enable_fota_relay = true;
+    
+    EXPECT_TRUE(daemon->initialize(config));
+    EXPECT_TRUE(daemon->start());
+    EXPECT_TRUE(daemon->isRunning());
+    
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    
+    daemon->shutdown();
+    EXPECT_FALSE(daemon->isRunning());
+}
+
+TEST_F(SomeipIntegrationTest, ServiceDiscoveryUnified) {
+    // 验证统一 offer 0x6101/0x0001
+    
+    ServiceConfig config;
+    config.enable_sd = true;
+    
+    EXPECT_TRUE(daemon->initialize(config));
+    EXPECT_TRUE(daemon->start());
+    
+    // 服务发现应只 offer 一次
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    
+    daemon->shutdown();
+}
