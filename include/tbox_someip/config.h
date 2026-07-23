@@ -29,6 +29,7 @@ struct ServiceConfig {
     bool enable_location = true;
     bool enable_net_status = true;
     bool enable_remote_cmd_relay = true;
+    bool enable_fota_relay = true;
 };
 
 // 默认配置
