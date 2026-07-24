@@ -104,6 +104,16 @@ using NetStatusCallback = std::function<void(const NetStatusData&)>;
 using RemoteCommandCallback = std::function<void(const RemoteCommand&)>;
 using FotaCommandCallback = std::function<void(const FotaCommand&)>;
 
+// 客户端连接事件
+struct ClientConnectionEvent {
+    uint16_t service_id;
+    uint16_t instance_id;
+    uint16_t client_id;
+    bool connected;  // true=连接, false=断开
+    std::chrono::system_clock::time_point timestamp;
+};
+using ClientConnectionCallback = std::function<void(const ClientConnectionEvent&)>;
+
 // 服务状态
 enum class ServiceState {
     UNAVAILABLE,    // 不可用

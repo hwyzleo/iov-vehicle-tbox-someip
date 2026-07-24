@@ -3,6 +3,7 @@ set(SOURCES
     main.cpp
     someip_daemon.cpp
     service_discovery.cpp
+    someip_service.cpp
     ipc_bridge.cpp
     services/time_sync.cpp
     services/location.cpp
@@ -13,6 +14,9 @@ set(SOURCES
 
 # 创建可执行文件
 add_executable(tbox-someip ${SOURCES})
+set_target_properties(tbox-someip PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
 
 # 包含目录
 target_include_directories(tbox-someip

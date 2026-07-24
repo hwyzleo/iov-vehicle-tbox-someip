@@ -1,6 +1,10 @@
 #include "someip_daemon.h"
 #include <iostream>
 #include <csignal>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <stdexcept>
 
 #ifdef USE_MOCK_SOMEIP
 // Mock IPC clients for testing
@@ -60,6 +64,95 @@ public:
 
 namespace tbox {
 namespace someip {
+
+/**
+ * @brief 解析 FOTA 软件库存上报的 payload
+ * 
+ * Payload 格式（纯文本，| 分隔）：
+ *   VIN|snapshot_seq|ecu_count|ecu_id_1,sw_version_1|ecu_id_2,sw_version_2|...
+ * 
+ * 示例：
+ *   12345678901234567|1|3|ECU_A,1.0.0|ECU_B,2.1.3|ECU_C,unknown
+ * 
+ * @param payload 原始 payload 字节
+ * @return 解析后的 VehicleSoftwareSnapshot
+ * @throw std::runtime_error 解析失败时抛出异常
+ */
+static VehicleSoftwareSnapshot parseSoftwareInventoryPayload(const std::vector<uint8_t>& payload) {
+    // 将 payload 转换为字符串
+    std::string text(payload.begin(), payload.end());
+    
+    // 移除可能的尾部空白字符
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) {
+        text.pop_back();
+    }
+    
+    std::istringstream iss(text);
+    std::string token;
+    std::vector<std::string> tokens;
+    
+    // 按 | 分割
+    while (std::getline(iss, token, '|')) {
+        tokens.push_back(token);
+    }
+    
+    // 至少需要 VIN|snapshot_seq|ecu_count 三个字段
+    if (tokens.size() < 3) {
+        throw std::runtime_error("Invalid payload format: too few fields");
+    }
+    
+    VehicleSoftwareSnapshot snapshot;
+    snapshot.vin = tokens[0];
+    
+    // 解析 snapshot_seq
+    try {
+        snapshot.snapshot_seq = std::stoull(tokens[1]);
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Invalid snapshot_seq: " + tokens[1]);
+    }
+    
+    // 解析 ecu_count
+    size_t ecu_count;
+    try {
+        ecu_count = std::stoull(tokens[2]);
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Invalid ecu_count: " + tokens[2]);
+    }
+    
+    // 验证字段数量
+    if (tokens.size() < 3 + ecu_count) {
+        throw std::runtime_error("Payload truncated: expected " + 
+            std::to_string(3 + ecu_count) + " fields, got " + std::to_string(tokens.size()));
+    }
+    
+    // 解析 ECU 列表
+    for (size_t i = 0; i < ecu_count; ++i) {
+        const std::string& ecu_entry = tokens[3 + i];
+        
+        // 按逗号分隔 ecu_id,sw_version
+        size_t comma_pos = ecu_entry.find(',');
+        if (comma_pos == std::string::npos) {
+            throw std::runtime_error("Invalid ECU entry format (missing comma): " + ecu_entry);
+        }
+        
+        EcuVersionEntry ecu;
+        ecu.ecu_id = ecu_entry.substr(0, comma_pos);
+        ecu.sw_version = ecu_entry.substr(comma_pos + 1);
+        
+        // 处理 "unknown" 版本
+        if (ecu.sw_version.value() == "unknown") {
+            ecu.sw_version = std::nullopt;
+        }
+        
+        snapshot.ecu_list.push_back(std::move(ecu));
+    }
+    
+    // 设置默认值
+    snapshot.registry_version = "1.0";
+    snapshot.collected_at = "";  // 可由调用方填充时间戳
+    
+    return snapshot;
+}
 
 SomeipDaemon* SomeipDaemon::instance_ = nullptr;
 
@@ -163,6 +256,9 @@ bool SomeipDaemon::start() {
     
     running_ = true;
     std::cout << "TBOX-SOMEIP daemon started successfully" << std::endl;
+    
+
+    
     return true;
 }
 
@@ -307,9 +403,88 @@ bool SomeipDaemon::startServiceDiscovery() {
         return false;
     }
     
+    // 注册 FOTA Software Inventory 上报处理器
+    service_discovery_->registerMethodHandler(
+        method_ids::REPORT_SOFTWARE_INVENTORY,
+        [this](const SomeIpMessage& request) -> SomeIpMessage {
+            SomeIpMessage response;
+            response.header.service_id = request.header.service_id;
+            response.header.method_id = request.header.method_id;
+            response.header.message_type = SomeIpMessageType::RESPONSE;
+            response.header.client_id = request.header.client_id;
+            response.header.session_id = request.header.session_id;
+            response.header.protocol_version = request.header.protocol_version;
+            response.header.interface_version = request.header.interface_version;
+            
+            // 检查 FotaRelayService 是否可用
+            if (!fota_relay_service_) {
+                std::cerr << "[FOTA] FotaRelayService not available" << std::endl;
+                response.header.return_code = SomeIpReturnCode::E_NOT_OK;
+                return response;
+            }
+            
+            // 解析 payload
+            VehicleSoftwareSnapshot snapshot;
+            try {
+                snapshot = parseSoftwareInventoryPayload(request.payload);
+            } catch (const std::exception& e) {
+                std::cerr << "[FOTA] Failed to parse payload: " << e.what() << std::endl;
+                response.header.return_code = SomeIpReturnCode::E_NOT_OK;
+                return response;
+            }
+            
+            // 调用 FotaRelayService 上报
+            ErrorCode result = fota_relay_service_->reportSoftwareInventory(snapshot);
+            
+            if (result == ErrorCode::SUCCESS) {
+                response.header.return_code = SomeIpReturnCode::E_OK;
+                std::cout << "[FOTA] Software inventory reported successfully for VIN: " 
+                          << snapshot.vin << std::endl;
+            } else {
+                response.header.return_code = SomeIpReturnCode::E_NOT_OK;
+                std::cerr << "[FOTA] Failed to report software inventory, error code: " 
+                          << static_cast<uint16_t>(result) << std::endl;
+            }
+            
+            return response;
+        });
+    
+    // 订阅客户端连接事件
+    service_discovery_->subscribeClientConnection(
+        someip_addressing::SERVICE_ID,
+        someip_addressing::INSTANCE_ID,
+        [this](const ClientConnectionEvent& event) {
+            handleClientConnection(event);
+        });
+    
     std::cout << "Service discovery started" << std::endl;
     return true;
 }
+
+void SomeipDaemon::handleClientConnection(const ClientConnectionEvent& event) {
+    if (event.connected) {
+        std::cout << "[CLIENT_CONNECTED] Client 0x" << std::hex << event.client_id
+                  << " connected to service 0x" << event.service_id
+                  << " instance 0x" << event.instance_id << std::endl;
+        
+        // 如果是 FOTA 相关的服务，打印特殊日志
+        if (event.service_id == someip_addressing::SERVICE_ID && 
+            event.instance_id == someip_addressing::INSTANCE_ID) {
+            std::cout << "[FOTA_CLIENT] CGW-FOTA client connected via SOME/IP" << std::endl;
+        }
+    } else {
+        std::cout << "[CLIENT_DISCONNECTED] Client 0x" << std::hex << event.client_id
+                  << " disconnected from service 0x" << event.service_id
+                  << " instance 0x" << event.instance_id << std::endl;
+        
+        if (event.service_id == someip_addressing::SERVICE_ID && 
+            event.instance_id == someip_addressing::INSTANCE_ID) {
+            std::cout << "[FOTA_CLIENT] CGW-FOTA client disconnected" << std::endl;
+        }
+    }
+}
+
+
 
 } // namespace someip
 } // namespace tbox

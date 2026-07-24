@@ -112,6 +112,16 @@ public:
         std::function<void(bool)> callback
     ) = 0;
     
+    // 订阅客户端连接事件
+    virtual void subscribeClientConnection(
+        uint16_t service_id,
+        uint16_t instance_id,
+        ClientConnectionCallback callback
+    ) = 0;
+    
+    // 模拟客户端连接（用于测试）
+    virtual void simulateClientConnection(uint16_t service_id, uint16_t instance_id, uint16_t client_id, bool connected) = 0;
+    
     // 关闭服务发现
     virtual void shutdown() = 0;
 };

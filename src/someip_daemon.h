@@ -33,6 +33,8 @@ public:
     
     // 获取运行状态
     bool isRunning() const;
+    
+
 
 private:
     // 信号处理
@@ -46,6 +48,9 @@ private:
     
     // 启动服务发现
     bool startServiceDiscovery();
+    
+    // 处理客户端连接事件
+    void handleClientConnection(const ClientConnectionEvent& event);
     
     ServiceConfig config_;
     
