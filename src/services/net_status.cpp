@@ -1,12 +1,13 @@
 #include "net_status.h"
 #include "ipc_bridge.h"
-#include <iostream>
+#include "tbox_someip/someip_log_adapter.h"
+
 #include <chrono>
 
 namespace tbox {
 namespace someip {
 
-NetStatusService::NetStatusService(IpcBridge* bridge) 
+NetStatusService::NetStatusService(IpcBridge* bridge)
     : bridge_(bridge)
     , state_(ServiceState::UNAVAILABLE)
     , running_(false) {}
@@ -17,84 +18,118 @@ NetStatusService::~NetStatusService() {
 
 bool NetStatusService::initialize() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (state_ != ServiceState::UNAVAILABLE) {
-        std::cerr << "NetStatusService already initialized" << std::endl;
+        SomeipLogAdapter::method().warn("someip.net_status.already_initialized",
+            "NetStatusService already initialized"
+        );
         return false;
     }
-    
+
     if (!bridge_ || !bridge_->isInitialized()) {
-        std::cerr << "IpcBridge not initialized" << std::endl;
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "IpcBridge not initialized",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("initialize")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return false;
     }
-    
+
     // 获取 TSP 客户端
     auto client = bridge_->getClient("tsp");
     if (!client) {
-        std::cerr << "TSP client not found" << std::endl;
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "TSP client not found",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("get_client")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return false;
     }
-    
+
     tsp_client_ = std::dynamic_pointer_cast<ITspClient>(client);
     if (!tsp_client_) {
-        std::cerr << "Invalid TSP client type" << std::endl;
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "Invalid TSP client type",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("cast")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return false;
     }
-    
+
     // 初始化 TSP 客户端
     if (!tsp_client_->initialize()) {
-        std::cerr << "Failed to initialize TSP client" << std::endl;
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "Failed to initialize TSP client",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("initialize")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return false;
     }
-    
+
     state_ = ServiceState::INITIALIZING;
-    std::cout << "NetStatusService initialized" << std::endl;
+    SomeipLogAdapter::method().info("someip.net_status.initialized",
+        "NetStatusService initialized"
+    );
     return true;
 }
 
 bool NetStatusService::start() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (state_ != ServiceState::INITIALIZING) {
-        std::cerr << "NetStatusService not in initializing state" << std::endl;
+        SomeipLogAdapter::method().warn("someip.net_status.start_failed",
+            "NetStatusService not in initializing state"
+        );
         return false;
     }
-    
+
     // 启动工作线程
     running_ = true;
     worker_thread_ = std::thread(&NetStatusService::run, this);
-    
+
     state_ = ServiceState::AVAILABLE;
-    std::cout << "NetStatusService started" << std::endl;
+    SomeipLogAdapter::method().info("someip.net_status.started",
+        "NetStatusService started"
+    );
     return true;
 }
 
 void NetStatusService::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        
+
         if (state_ == ServiceState::UNAVAILABLE) {
             return;
         }
-        
+
         running_ = false;
     }
-    
+
     if (worker_thread_.joinable()) {
         worker_thread_.join();
     }
-    
+
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (tsp_client_) {
         tsp_client_->shutdown();
         tsp_client_.reset();
     }
-    
+
     status_callbacks_.clear();
     state_ = ServiceState::UNAVAILABLE;
-    
-    std::cout << "NetStatusService stopped" << std::endl;
+
+    SomeipLogAdapter::method().info("someip.net_status.stopped",
+        "NetStatusService stopped"
+    );
 }
 
 ServiceState NetStatusService::getState() const {
@@ -112,22 +147,36 @@ uint16_t NetStatusService::getInstanceId() const {
 
 ErrorCode NetStatusService::getNetStatus(NetStatusData& status) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (state_ != ServiceState::AVAILABLE) {
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "NetStatusService not available",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("get_net_status")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return ErrorCode::CLIENT_CALL_FAILED;
     }
-    
+
     if (!tsp_client_ || !tsp_client_->isConnected()) {
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "TSP client not connected",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("get_net_status")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return ErrorCode::CLIENT_CALL_FAILED;
     }
-    
+
     return tsp_client_->getNetStatus(status);
 }
 
 void NetStatusService::subscribeNetStatusChanges(NetStatusCallback callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     status_callbacks_.push_back(callback);
-    
+
     // 订阅网络状态变化
     if (tsp_client_) {
         tsp_client_->subscribeNetStatusChanges([this](const NetStatusData& status) {

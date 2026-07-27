@@ -1,4 +1,5 @@
 #include "tbox_someip/someip_service.h"
+#include "tbox_someip/someip_log_adapter.h"
 #include <unordered_map>
 #include <mutex>
 #include <atomic>
@@ -11,7 +12,6 @@
 #include <unistd.h>
 #include <poll.h>
 #include <cstring>
-#include <iostream>
 
 namespace {
 
@@ -117,7 +117,11 @@ public:
 
         listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
         if (listen_fd_ < 0) {
-            std::cerr << "[ERROR] MockSomeIP socket() failed: " << std::strerror(errno) << "\n";
+            SomeipLogAdapter::runtime().error("someip.runtime.socket_failed",
+                "MockSomeIP socket() failed",
+                {tbox::fw::log::Field("error", tbox::fw::log::FieldValue::makeString(std::strerror(errno))),
+                 tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
+            );
             return false;
         }
 
@@ -128,21 +132,34 @@ public:
         addr.sin_family = AF_INET;
         addr.sin_port = htons(config_.port);
         if (::inet_pton(AF_INET, config_.ip_address.c_str(), &addr.sin_addr) != 1) {
-            std::cerr << "[ERROR] MockSomeIP inet_pton() failed for " << config_.ip_address << "\n";
+            SomeipLogAdapter::runtime().error("someip.runtime.inet_pton_failed",
+                "MockSomeIP inet_pton() failed",
+                {tbox::fw::log::Field("ip_address", tbox::fw::log::FieldValue::makeString(config_.ip_address)),
+                 tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
+            );
             ::close(listen_fd_);
             listen_fd_ = -1;
             return false;
         }
 
         if (::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-            std::cerr << "[ERROR] MockSomeIP bind() failed: " << std::strerror(errno) << "\n";
+            SomeipLogAdapter::runtime().error("someip.runtime.bind_failed",
+                "MockSomeIP bind() failed",
+                {tbox::fw::log::Field("error", tbox::fw::log::FieldValue::makeString(std::strerror(errno))),
+                 tbox::fw::log::Field("port", tbox::fw::log::FieldValue::makeInt(config_.port)),
+                 tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
+            );
             ::close(listen_fd_);
             listen_fd_ = -1;
             return false;
         }
 
         if (::listen(listen_fd_, 1) < 0) {
-            std::cerr << "[ERROR] MockSomeIP listen() failed: " << std::strerror(errno) << "\n";
+            SomeipLogAdapter::runtime().error("someip.runtime.listen_failed",
+                "MockSomeIP listen() failed",
+                {tbox::fw::log::Field("error", tbox::fw::log::FieldValue::makeString(std::strerror(errno))),
+                 tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
+            );
             ::close(listen_fd_);
             listen_fd_ = -1;
             return false;
@@ -170,12 +187,13 @@ public:
         running_ = true;
 
         listener_thread_ = std::thread([this]() {
-            // 使用 stringstream 构建完整消息，避免线程间 std::cout 格式状态竞争
-            std::ostringstream oss;
-            oss << "[INFO] MockSomeIP listening on " << bound_address_ << ":" << bound_port_
-               << " for service=0x" << std::hex << config_.service_id
-               << " instance=0x" << config_.instance_id << std::dec << "\n";
-            std::cout << oss.str();
+            SomeipLogAdapter::sd().info("someip.sd.listening",
+                "MockSomeIP listening for connections",
+                {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+                 tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
+                 tbox::fw::log::Field("bind_address", tbox::fw::log::FieldValue::makeString(bound_address_)),
+                 tbox::fw::log::Field("port", tbox::fw::log::FieldValue::makeInt(bound_port_))}
+            );
             while (!stop_requested_) {
                 pollfd pfd{listen_fd_, POLLIN, 0};
                 int pr = ::poll(&pfd, 1, 200); // 200ms poll interval
@@ -190,7 +208,10 @@ public:
                 int fd = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&cli), &cliLen);
                 if (fd < 0) {
                     if (errno == EINTR) continue;
-                    std::cerr << "[WARN] MockSomeIP accept() failed: " << std::strerror(errno) << "\n";
+                    SomeipLogAdapter::sd().warn("someip.sd.accept_failed",
+                        "MockSomeIP accept() failed",
+                        {tbox::fw::log::Field("error", tbox::fw::log::FieldValue::makeString(std::strerror(errno)))}
+                    );
                     continue;
                 }
 
@@ -203,12 +224,13 @@ public:
                 {
                     char addr_buf[INET_ADDRSTRLEN] = {0};
                     ::inet_ntop(AF_INET, &cli.sin_addr, addr_buf, sizeof(addr_buf));
-                    std::ostringstream oss;
-                    oss << "[INFO] MockSomeIP client connected: fd=" << client_fd_
-                       << ", addr=" << addr_buf << ":" << ntohs(cli.sin_port)
-                       << ", service=0x" << std::hex << config_.service_id
-                       << ", instance=0x" << config_.instance_id << std::dec << "\n";
-                    std::cout << oss.str();
+                    SomeipLogAdapter::sd().info("someip.sd.subscription.changed",
+                        "MockSomeIP client connected",
+                        {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+                         tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
+                         tbox::fw::log::Field("remote_endpoint", tbox::fw::log::FieldValue::makeString(std::string(addr_buf) + ":" + std::to_string(ntohs(cli.sin_port)))),
+                         tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("connected"))}
+                    );
                 }
 
                 // Simple synchronous request processing loop
@@ -235,13 +257,13 @@ public:
                         }
                     }
 
-                    {
-                        std::ostringstream oss;
-                        oss << "[INFO] MockSomeIP recv service=0x" << std::hex << hdr.service_id
-                           << " method=0x" << hdr.method_id << std::dec
-                           << " session=" << hdr.session_id << "\n";
-                        std::cout << oss.str();
-                    }
+                    SomeipLogAdapter::method().debug("someip.method.request.received",
+                        "MockSomeIP request received",
+                        {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(hdr.service_id)),
+                         tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(hdr.method_id)),
+                         tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(hdr.client_id)),
+                         tbox::fw::log::Field("payload_length", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(payload_length)))}
+                    );
 
                     // Map to SomeIpMessage
                     SomeIpMessage request;
@@ -293,7 +315,12 @@ public:
                     }
                 }
 
-                std::cout << "[INFO] MockSomeIP client disconnected\n";
+                SomeipLogAdapter::sd().info("someip.sd.subscription.changed",
+                    "MockSomeIP client disconnected",
+                    {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+                     tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
+                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("disconnected"))}
+                );
                 ::close(client_fd_);
                 client_fd_ = -1;
             }

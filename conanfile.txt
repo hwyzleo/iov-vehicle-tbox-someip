@@ -1,0 +1,16 @@
+[requires]
+nlohmann_json/3.11.2
+gtest/1.14.0
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[options]
+nlohmann_json/*:shared=False
+gtest/*:shared=False
+
+[imports]
+lib, *.a -> ./lib
+lib, *.dylib -> ./lib
+lib, *.so -> ./lib

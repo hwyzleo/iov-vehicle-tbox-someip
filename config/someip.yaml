@@ -1,0 +1,22 @@
+# TBOX-SOMEIP 服务配置 - 部署到 /etc/tbox/conf.d/someip.yaml
+# 覆盖 common.log.* 中的日志级别和模块级别
+someip:
+  # 服务实例配置
+  enable_time_sync: true
+  enable_location: true
+  enable_net_status: true
+  enable_remote_cmd_relay: true
+  enable_fota_relay: true
+
+log:
+  type: console
+  path: ./log.txt
+  level: INFO
+  modules:
+    runtime: INFO
+    sd: INFO
+    method: DEBUG
+    event: DEBUG
+    ipc_bridge: INFO
+    serializer: INFO
+    fota_relay: INFO

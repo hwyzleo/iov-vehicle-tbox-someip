@@ -1,12 +1,13 @@
 #include "remote_cmd_relay.h"
 #include "ipc_bridge.h"
-#include <iostream>
+#include "tbox_someip/someip_log_adapter.h"
+
 #include <chrono>
 
 namespace tbox {
 namespace someip {
 
-RemoteCmdRelayService::RemoteCmdRelayService(IpcBridge* bridge) 
+RemoteCmdRelayService::RemoteCmdRelayService(IpcBridge* bridge)
     : bridge_(bridge)
     , state_(ServiceState::UNAVAILABLE)
     , running_(false) {}
@@ -17,91 +18,125 @@ RemoteCmdRelayService::~RemoteCmdRelayService() {
 
 bool RemoteCmdRelayService::initialize() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (state_ != ServiceState::UNAVAILABLE) {
-        std::cerr << "RemoteCmdRelayService already initialized" << std::endl;
+        SomeipLogAdapter::method().warn("someip.remote_cmd.already_initialized",
+            "RemoteCmdRelayService already initialized"
+        );
         return false;
     }
-    
+
     if (!bridge_ || !bridge_->isInitialized()) {
-        std::cerr << "IpcBridge not initialized" << std::endl;
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "IpcBridge not initialized",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("initialize")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return false;
     }
-    
+
     // 获取 TSP 客户端
     auto client = bridge_->getClient("tsp");
     if (!client) {
-        std::cerr << "TSP client not found" << std::endl;
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "TSP client not found",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("get_client")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return false;
     }
-    
+
     tsp_client_ = std::dynamic_pointer_cast<ITspClient>(client);
     if (!tsp_client_) {
-        std::cerr << "Invalid TSP client type" << std::endl;
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "Invalid TSP client type",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("cast")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return false;
     }
-    
+
     // 初始化 TSP 客户端
     if (!tsp_client_->initialize()) {
-        std::cerr << "Failed to initialize TSP client" << std::endl;
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
+            "Failed to initialize TSP client",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("initialize")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
         return false;
     }
-    
+
     state_ = ServiceState::INITIALIZING;
-    std::cout << "RemoteCmdRelayService initialized" << std::endl;
+    SomeipLogAdapter::method().info("someip.remote_cmd.initialized",
+        "RemoteCmdRelayService initialized"
+    );
     return true;
 }
 
 bool RemoteCmdRelayService::start() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (state_ != ServiceState::INITIALIZING) {
-        std::cerr << "RemoteCmdRelayService not in initializing state" << std::endl;
+        SomeipLogAdapter::method().warn("someip.remote_cmd.start_failed",
+            "RemoteCmdRelayService not in initializing state"
+        );
         return false;
     }
-    
+
     // 订阅远程命令
     if (tsp_client_) {
         tsp_client_->subscribeRemoteCommands([this](const RemoteCommand& command) {
             notifyRemoteCommand(command);
         });
     }
-    
+
     // 启动工作线程
     running_ = true;
     worker_thread_ = std::thread(&RemoteCmdRelayService::run, this);
-    
+
     state_ = ServiceState::AVAILABLE;
-    std::cout << "RemoteCmdRelayService started" << std::endl;
+    SomeipLogAdapter::method().info("someip.remote_cmd.started",
+        "RemoteCmdRelayService started"
+    );
     return true;
 }
 
 void RemoteCmdRelayService::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        
+
         if (state_ == ServiceState::UNAVAILABLE) {
             return;
         }
-        
+
         running_ = false;
     }
-    
+
     if (worker_thread_.joinable()) {
         worker_thread_.join();
     }
-    
+
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (tsp_client_) {
         tsp_client_->shutdown();
         tsp_client_.reset();
     }
-    
+
     command_callbacks_.clear();
     state_ = ServiceState::UNAVAILABLE;
-    
-    std::cout << "RemoteCmdRelayService stopped" << std::endl;
+
+    SomeipLogAdapter::method().info("someip.remote_cmd.stopped",
+        "RemoteCmdRelayService stopped"
+    );
 }
 
 ServiceState RemoteCmdRelayService::getState() const {
@@ -124,7 +159,18 @@ void RemoteCmdRelayService::subscribeRemoteCommands(RemoteCommandCallback callba
 
 void RemoteCmdRelayService::notifyRemoteCommand(const RemoteCommand& command) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
+    // IPC 通知转为 Event 下发，记录事件（payload 仅记录长度）
+    SomeipLogAdapter::event().info("someip.event.published",
+        "Remote command notification received from TSP",
+        {tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
+         tbox::fw::log::Field("command_id", tbox::fw::log::FieldValue::makeString(command.command_id)),
+         tbox::fw::log::Field("command_type", tbox::fw::log::FieldValue::makeString(command.command_type)),
+         tbox::fw::log::Field("payload_length", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(command.payload.size())),
+             tbox::fw::log::Sensitivity::Payload),
+         tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded"))}
+    );
+
     for (auto& callback : command_callbacks_) {
         if (callback) {
             callback(command);

@@ -7,6 +7,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 add_compile_options(-Wall -g)
 
+# TBox Framework (provides config, store, log)
+find_package(TBoxFramework REQUIRED)
+
 # SOME/IP 实现选项
 option(USE_MOCK_SOMEIP "Use mock SOME/IP implementation instead of vsomeip" ON)
 

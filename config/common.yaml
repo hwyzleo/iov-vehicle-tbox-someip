@@ -1,0 +1,26 @@
+# TBOX 公共配置 - 部署到 /etc/tbox/common.yaml
+# 被 framework-config 的 ConfigManager::load("someip") 读取
+common:
+  log:
+    schema_version: 1
+    level: INFO
+    strict: false
+    async:
+      enabled: true
+      queue_size: 4096
+      flush_interval_ms: 1000
+    console:
+      enabled: true
+    file:
+      enabled: false
+      root: /var/log/tbox
+      max_file_size_mb: 20
+      max_files: 5
+      total_budget_mb: 100
+    redact:
+      identifiers: mask
+      raw_payload_max_bytes: 256
+
+  # 持久化根路径（framework-store 使用）
+  store:
+    root: /var/lib/tbox

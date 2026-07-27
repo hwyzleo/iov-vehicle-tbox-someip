@@ -5,6 +5,8 @@ set(SOURCES
     service_discovery.cpp
     someip_service.cpp
     ipc_bridge.cpp
+    someip_log_adapter.cpp
+    someip_context.cpp
     services/time_sync.cpp
     services/location.cpp
     services/net_status.cpp
@@ -43,7 +45,7 @@ else()
     )
 endif()
 
-target_link_libraries(tbox-someip PRIVATE pthread)
+target_link_libraries(tbox-someip PRIVATE pthread ${TBoxFramework_LIBRARIES})
 
 # 安装
 install(TARGETS tbox-someip
