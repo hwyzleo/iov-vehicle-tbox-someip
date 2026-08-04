@@ -33,7 +33,7 @@ if(USE_REAL_IPC)
 endif()
 
 # 公共测试依赖（使用自定义 test_main.cpp 代替 gtest_main，以便在退出前 flush Logger）
-set(TEST_LIBS GTest::gtest pthread ${TBoxFramework_LIBRARIES})
+set(TEST_LIBS GTest::gtest pthread ${SOMEIP_FRAMEWORK_LIBS})
 set(TEST_INCLUDES ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
 set(TEST_RPATH "${GTEST_LIB_DIR};${GTEST_MAIN_LIB_DIR}")
 
@@ -49,22 +49,16 @@ function(configure_someip_test target_name)
         MACOSX_RPATH ON
     )
     if(NOT USE_MOCK_SOMEIP)
-        target_include_directories(${target_name}
-            PRIVATE
-                ${VSOMEIP_INCLUDE_DIRS}
-                ${COMMONAPI_INCLUDE_DIRS}
-                ${COMMONAPI_SOMEIP_INCLUDE_DIRS}
-        )
         target_link_libraries(${target_name}
             PRIVATE
-                ${VSOMEIP_LIBRARIES}
-                ${COMMONAPI_LIBRARIES}
-                ${COMMONAPI_SOMEIP_LIBRARIES}
+                PkgConfig::VSOMEIP
+                PkgConfig::COMMONAPI
+                PkgConfig::COMMONAPI_SOMEIP
         )
     endif()
     if(USE_REAL_IPC)
         target_include_directories(${target_name} PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)
-        target_link_libraries(${target_name} PRIVATE tbox::tbox_tsp_client)
+        target_link_libraries(${target_name} PRIVATE tbox::tsp_client tbox::prov_client)
     endif()
 endfunction()
 

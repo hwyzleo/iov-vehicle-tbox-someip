@@ -43,6 +43,8 @@
 build/
 Build/
 build-*/
+build_real/
+cmake-build-*/
 
 # CMake generated files
 CMakeFiles/
@@ -71,3 +73,5 @@ Testing/
 docs/superpowers/
 .superpowers/
 graphify-out/
+
+.idea/

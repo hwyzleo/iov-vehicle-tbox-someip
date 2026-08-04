@@ -2,29 +2,14 @@
     "applications": [
         {
             "name": "tbox-someip",
-            "id": "0x1234"
+            "id": "0x6101"
         }
     ],
     "services": [
         {
-            "service": "0x0100",
+            "service": "0x6101",
             "instance": "0x0001",
-            "unreliable": "30509"
-        },
-        {
-            "service": "0x0101",
-            "instance": "0x0001",
-            "unreliable": "30510"
-        },
-        {
-            "service": "0x0102",
-            "instance": "0x0001",
-            "unreliable": "30511"
-        },
-        {
-            "service": "0x0103",
-            "instance": "0x0001",
-            "unreliable": "30512"
+            "reliable": "56101"
         }
     ],
     "routing": "tbox-someip",

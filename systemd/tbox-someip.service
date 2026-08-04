@@ -1,28 +1,35 @@
+# TBOX-SOMEIP-DSN-CR-006 §7/§11.5：systemd 启动语义按真实事实登记。
+# - After=network-online.target：SOME/IP-SD Offer 需网络就绪；用 Wants 而非
+#   Requires（网络晚到 → 延迟 Offer/暂不可用，不阻塞启动）。
+# - After=tsp.service prov.service：SOMEIP 作为 consumer 连接 TSP/PROV 的
+#   IPC socket（USE_REAL_IPC 事实）；依赖未就绪时保持延迟 Offer 语义。
+# - 构建依赖（framework 无 unit）不得机械转成 systemd Requires=。
+
 [Unit]
-Description=TBOX-SOMEIP Service
-After=network-online.target
+Description=TBOX SOME/IP Service
+Documentation=https://app.notion.com/TBOX-SOMEIP-SPEC
+After=network-online.target tsp.service prov.service
 Wants=network-online.target
-After=gnss.service rtc.service tsp.service prov.service
-Requires=network-online.target
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/tbox-someip
 Restart=on-failure
 RestartSec=5
-WatchdogSec=30
+UMask=0077
 
-# 资源限制
-LimitNOFILE=65536
-LimitNPROC=4096
-
-# 安全限制
-User=tbox
-Group=tbox
-PrivateTmp=true
+# Security hardening
+NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-NoNewPrivileges=true
+# 不启用 PrivateTmp：SOMEIP 作为 consumer 连接 /tmp/tbox-tsp.sock
+# （TSP daemon 创建的 IPC socket，见 TBOX-TSP-DSN-CR-007 §8）；PrivateTmp
+# 会为单元挂载私有 /tmp，隔离跨进程 socket 可见性导致连接失败。
+ReadWritePaths=/tmp /var/log/tbox
+
+# Resource limits（vsomeip 多线程 I/O + 车内 SOME/IP 连接）
+LimitNOFILE=65536
+LimitNPROC=4096
 
 # 日志
 StandardOutput=journal
