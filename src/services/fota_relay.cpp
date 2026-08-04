@@ -143,7 +143,7 @@ uint16_t FotaRelayService::getInstanceId() const {
     return someip_addressing::INSTANCE_ID;
 }
 
-ErrorCode FotaRelayService::reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) {
+BridgeCallResult FotaRelayService::reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (state_ != ServiceState::AVAILABLE) {
@@ -154,7 +154,8 @@ ErrorCode FotaRelayService::reportSoftwareInventory(const VehicleSoftwareSnapsho
              tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
              tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
         );
-        return ErrorCode::CLIENT_CALL_FAILED;
+        return BridgeCallResult{BridgeOutcome::FAILED,
+            static_cast<int32_t>(ErrorCode::CLIENT_CALL_FAILED), ""};
     }
 
     if (!tsp_client_) {
@@ -165,38 +166,46 @@ ErrorCode FotaRelayService::reportSoftwareInventory(const VehicleSoftwareSnapsho
              tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
              tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
         );
-        return ErrorCode::CLIENT_CALL_FAILED;
+        return BridgeCallResult{BridgeOutcome::FAILED,
+            static_cast<int32_t>(ErrorCode::CLIENT_CALL_FAILED), ""};
     }
 
     auto start_time = std::chrono::steady_clock::now();
-    ErrorCode result = tsp_client_->reportSoftwareInventory(snapshot);
+    BridgeCallResult result = tsp_client_->reportSoftwareInventory(snapshot);
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start_time).count();
 
-    std::string result_str = (result == ErrorCode::SUCCESS) ? "succeeded" : "failed";
+    std::string result_str;
     std::string error_code_str;
-    if (result == ErrorCode::CLIENT_CALL_TIMEOUT) {
-        error_code_str = "TBOX-SOMEIP-1002";
-    } else if (result != ErrorCode::SUCCESS) {
-        error_code_str = "TBOX-SOMEIP-1003";
+    switch (result.outcome) {
+        case BridgeOutcome::SUCCESS:
+            result_str = "succeeded";
+            break;
+        case BridgeOutcome::UNKNOWN:
+            // 请求已发送但响应丢失：不返回伪成功，明确标注不确定结果
+            result_str = "unknown";
+            error_code_str = "TBOX-SOMEIP-1003";
+            break;
+        case BridgeOutcome::FAILED:
+        default:
+            result_str = "failed";
+            error_code_str = "TBOX-SOMEIP-1003";
+            break;
     }
 
     // FOTA 上行：VIN 按 Identifier 脱敏，payload 仅记录长度/条目数
-    std::initializer_list<tbox::fw::log::Field> fields = {
-        tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
-        tbox::fw::log::Field("entry_count", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.ecu_list.size()))),
-        tbox::fw::log::Field("snapshot_seq", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.snapshot_seq))),
-        tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(snapshot.vin),
-            tbox::fw::log::Sensitivity::Identifier),
-        tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
-        tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration))
-    };
-
-    if (result == ErrorCode::SUCCESS) {
+    if (result.outcome == BridgeOutcome::SUCCESS) {
         SomeipLogAdapter::fota_relay().info("someip.fota.inventory.relayed",
-            "Software inventory relayed to TSP", fields);
+            "Software inventory relayed to TSP",
+            {tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
+             tbox::fw::log::Field("entry_count", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.ecu_list.size()))),
+             tbox::fw::log::Field("snapshot_seq", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.snapshot_seq))),
+             tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(snapshot.vin),
+                 tbox::fw::log::Sensitivity::Identifier),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
+             tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration))}
+        );
     } else {
-        // 附加 error_code 字段需要额外构造
         SomeipLogAdapter::fota_relay().error("someip.fota.inventory.relayed",
             "Failed to relay software inventory to TSP",
             {tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
@@ -204,7 +213,7 @@ ErrorCode FotaRelayService::reportSoftwareInventory(const VehicleSoftwareSnapsho
              tbox::fw::log::Field("snapshot_seq", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.snapshot_seq))),
              tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(snapshot.vin),
                  tbox::fw::log::Sensitivity::Identifier),
-             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
              tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration)),
              tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString(error_code_str))}
         );

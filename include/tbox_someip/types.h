@@ -81,11 +81,14 @@ struct VehicleSoftwareSnapshot {
     std::vector<EcuVersionEntry> ecu_list;
 };
 
-// FOTA 命令（预留，待后续 CR 细化）
+// FOTA 命令（下行，来源 tsp_client）
 struct FotaCommand {
     std::string command_id;
+    std::string delivery_id;   // 投递幂等键（断线重放判定）
     std::string command_type;
     std::string payload;
+    std::string trace_id;
+    std::string request_id;
 };
 
 // 错误码定义
@@ -95,6 +98,21 @@ enum class ErrorCode : uint16_t {
     CLIENT_CALL_TIMEOUT = 1002,    // 内部 client 调用超时
     CLIENT_CALL_FAILED = 1003,     // 内部 client 调用失败/不可用
     SERIALIZATION_FAILED = 1004,   // 序列化/映射转换失败
+};
+
+// 桥接调用结果语义 (CR-005 §4.2)
+// 请求已发送但响应丢失时为 UNKNOWN，不得返回伪成功或空值。
+enum class BridgeOutcome : uint8_t {
+    SUCCESS = 0,   // 调用成功
+    UNKNOWN,       // 请求已发送但响应丢失，结果不确定
+    FAILED         // 明确失败
+};
+
+// 内部 client 桥接调用结果
+struct BridgeCallResult {
+    BridgeOutcome outcome = BridgeOutcome::FAILED;
+    int32_t error_code = 0;     // 域业务错误码（如 TBOX-TSP-10xx），SUCCESS 时为 0
+    std::string msg_id;         // 幂等关联键，用于 UNKNOWN 时查询/单次重试
 };
 
 // 回调类型定义

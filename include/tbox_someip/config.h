@@ -19,6 +19,11 @@ struct ServiceConfig {
     
     // IPC 配置
     uint32_t ipc_timeout_ms = 1000;
+
+    // IPC 桥接配置 (CR-005)：通过 TBOX 域 client facade 访问内部服务
+    std::string tsp_ipc_socket_path = "/tmp/tbox-tsp.sock";
+    uint32_t ipc_default_timeout_ms = 3000;
+    uint32_t ipc_event_queue_size = 256;
     
     // 日志配置
     std::string log_level = "info";

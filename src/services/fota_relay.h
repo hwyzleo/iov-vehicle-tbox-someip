@@ -24,7 +24,7 @@ public:
     uint16_t getInstanceId() const override;
     
     // FOTA 上行
-    ErrorCode reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot);
+    BridgeCallResult reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot);
     
     // FOTA 下行（预留）
     void subscribeFotaCommands(FotaCommandCallback callback);

@@ -2,6 +2,10 @@
 #include "tbox_someip/someip_log_adapter.h"
 #include "tbox_someip/someip_context.h"
 
+#ifdef USE_REAL_IPC
+#include "bridge/tsp_client_adapter.h"
+#endif
+
 #include <csignal>
 #include <sstream>
 #include <string>
@@ -9,8 +13,7 @@
 #include <stdexcept>
 #include <chrono>
 
-#ifdef USE_MOCK_SOMEIP
-// Mock IPC clients for testing
+// Mock IPC clients (always compiled; used in mock mode and as placeholders in real mode)
 namespace {
 
 class MockRtcClient : public tbox::someip::IRtcClient {
@@ -48,8 +51,8 @@ public:
     }
     void subscribeNetStatusChanges(tbox::someip::NetStatusCallback callback) override {}
     void subscribeRemoteCommands(tbox::someip::RemoteCommandCallback callback) override {}
-    tbox::someip::ErrorCode reportSoftwareInventory(const tbox::someip::VehicleSoftwareSnapshot& snapshot) override {
-        return tbox::someip::ErrorCode::SUCCESS;
+    tbox::someip::BridgeCallResult reportSoftwareInventory(const tbox::someip::VehicleSoftwareSnapshot& snapshot) override {
+        return tbox::someip::BridgeCallResult{tbox::someip::BridgeOutcome::SUCCESS, 0, ""};
     }
     void subscribeFotaCommands(tbox::someip::FotaCommandCallback callback) override {}
 };
@@ -63,7 +66,6 @@ public:
 };
 
 } // anonymous namespace
-#endif // USE_MOCK_SOMEIP
 
 namespace tbox {
 namespace someip {
@@ -367,6 +369,33 @@ bool SomeipDaemon::initializeIpcClients() {
     ipc_bridge_->registerClient("gnss", std::make_shared<MockGnssClient>());
     ipc_bridge_->registerClient("tsp", std::make_shared<MockTspClient>());
     ipc_bridge_->registerClient("prov", std::make_shared<MockProvClient>());
+#elif defined(USE_REAL_IPC)
+    // Real 模式：通过 framework-ipc 域 facade 接入 (CR-005)
+    SomeipLogAdapter::ipc_bridge().info("someip.ipc.using_real",
+        "Using real IPC clients via framework-ipc domain facades"
+    );
+
+    // TSP: FOTA 链路走 tbox::tsp_client
+    TspAdapterConfig tsp_cfg;
+    tsp_cfg.socket_path = config_.tsp_ipc_socket_path;
+    tsp_cfg.default_timeout_ms = config_.ipc_default_timeout_ms;
+    tsp_cfg.event_queue_size = config_.ipc_event_queue_size;
+    auto tsp_adapter = std::make_shared<TspClientAdapter>(tsp_cfg);
+    if (!tsp_adapter->initialize()) {
+        SomeipLogAdapter::ipc_bridge().error("someip.ipc.tsp.init_failed",
+            "Failed to initialize TSP client adapter",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+        );
+        return false;
+    }
+    ipc_bridge_->registerClient("tsp", tsp_adapter);
+
+    // GNSS/RTC/PROV: 对应 facade 未就绪，暂用 Mock 占位（后续 CR 迁移）
+    ipc_bridge_->registerClient("rtc", std::make_shared<MockRtcClient>());
+    ipc_bridge_->registerClient("gnss", std::make_shared<MockGnssClient>());
+    ipc_bridge_->registerClient("prov", std::make_shared<MockProvClient>());
 #endif
 
     return true;
@@ -562,11 +591,18 @@ bool SomeipDaemon::startServiceDiscovery() {
 
             // 调用 FotaRelayService 上报（VIN 按 Identifier 脱敏）
             auto relay_start_time = std::chrono::steady_clock::now();
-            ErrorCode result = fota_relay_service_->reportSoftwareInventory(snapshot);
+            BridgeCallResult result = fota_relay_service_->reportSoftwareInventory(snapshot);
             auto relay_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - relay_start_time).count();
 
-            if (result == ErrorCode::SUCCESS) {
+            std::string result_str;
+            switch (result.outcome) {
+                case BridgeOutcome::SUCCESS: result_str = "succeeded"; break;
+                case BridgeOutcome::UNKNOWN: result_str = "unknown";   break;
+                default:                     result_str = "failed";    break;
+            }
+
+            if (result.outcome == BridgeOutcome::SUCCESS) {
                 response.header.return_code = SomeIpReturnCode::E_OK;
 
                 SomeipLogAdapter::fota_relay().info("someip.fota.inventory.relayed",
@@ -577,25 +613,23 @@ bool SomeipDaemon::startServiceDiscovery() {
                      tbox::fw::log::Field("snapshot_seq", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.snapshot_seq))),
                      tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(snapshot.vin),
                          tbox::fw::log::Sensitivity::Identifier),
-                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
+                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
                      tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(relay_duration))}
                 );
             } else {
                 response.header.return_code = SomeIpReturnCode::E_NOT_OK;
 
                 std::string error_code_str = "TBOX-SOMEIP-1003";
-                if (result == ErrorCode::CLIENT_CALL_TIMEOUT) {
-                    error_code_str = "TBOX-SOMEIP-1002";
-                }
 
                 SomeipLogAdapter::fota_relay().error("someip.fota.inventory.relayed",
                     "Failed to relay software inventory to TSP",
                     {tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
                      tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
                      tbox::fw::log::Field("entry_count", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.ecu_list.size()))),
+                     tbox::fw::log::Field("snapshot_seq", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.snapshot_seq))),
                      tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(snapshot.vin),
                          tbox::fw::log::Sensitivity::Identifier),
-                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
                      tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(relay_duration)),
                      tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString(error_code_str))}
                 );
@@ -608,8 +642,7 @@ bool SomeipDaemon::startServiceDiscovery() {
                 {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(method_ids::REPORT_SOFTWARE_INVENTORY)),
                  tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(request.header.client_id)),
                  tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
-                 tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(
-                     result == ErrorCode::SUCCESS ? "succeeded" : "failed")),
+                 tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
                  tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(req_duration))}
             );
 

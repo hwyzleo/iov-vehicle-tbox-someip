@@ -14,6 +14,10 @@ set(SOURCES
     services/fota_relay.cpp
 )
 
+if(USE_REAL_IPC)
+    list(APPEND SOURCES bridge/tsp_client_adapter.cpp)
+endif()
+
 # 创建可执行文件
 add_executable(tbox-someip ${SOURCES})
 set_target_properties(tbox-someip PROPERTIES
@@ -46,6 +50,11 @@ else()
 endif()
 
 target_link_libraries(tbox-someip PRIVATE pthread ${TBoxFramework_LIBRARIES})
+
+if(USE_REAL_IPC)
+    target_include_directories(tbox-someip PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)
+    target_link_libraries(tbox-someip PRIVATE tbox::tbox_tsp_client)
+endif()
 
 # 安装
 install(TARGETS tbox-someip

@@ -245,7 +245,7 @@ TEST_F(LogIntegrationTest, FotaRelayServiceIntegration) {
         ErrorCode getNetStatus(NetStatusData&) override { return ErrorCode::SUCCESS; }
         void subscribeNetStatusChanges(NetStatusCallback) override {}
         void subscribeRemoteCommands(RemoteCommandCallback) override {}
-        ErrorCode reportSoftwareInventory(const VehicleSoftwareSnapshot&) override { return ErrorCode::SUCCESS; }
+        BridgeCallResult reportSoftwareInventory(const VehicleSoftwareSnapshot&) override { return BridgeCallResult{BridgeOutcome::SUCCESS, 0, ""}; }
         void subscribeFotaCommands(FotaCommandCallback) override {}
     };
 
@@ -274,7 +274,7 @@ TEST_F(LogIntegrationTest, FotaRelayServiceIntegration) {
     snapshot.ecu_list.push_back(ecu2);
 
     auto result = relay_->reportSoftwareInventory(snapshot);
-    EXPECT_EQ(result, ErrorCode::SUCCESS);
+    EXPECT_EQ(result.outcome, BridgeOutcome::SUCCESS);
 }
 
 // 测试 strict 模式初始化

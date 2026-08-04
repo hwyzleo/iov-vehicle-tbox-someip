@@ -54,7 +54,8 @@ public:
     virtual void subscribeRemoteCommands(RemoteCommandCallback callback) = 0;
     
     // FOTA 上行：上报软件版本快照
-    virtual ErrorCode reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) = 0;
+    // 返回桥接结果：SUCCESS/UNKNOWN/FAILED，UNKNOWN 时仅可复用 msg_id 查询/单次重试
+    virtual BridgeCallResult reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) = 0;
     
     // FOTA 下行：订阅 FOTA 命令（预留）
     virtual void subscribeFotaCommands(FotaCommandCallback callback) = 0;

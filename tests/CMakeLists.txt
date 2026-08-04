@@ -28,6 +28,10 @@ set(SERVICE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/services/fota_relay.cpp
 )
 
+if(USE_REAL_IPC)
+    list(APPEND SERVICE_SOURCES ${CMAKE_SOURCE_DIR}/src/bridge/tsp_client_adapter.cpp)
+endif()
+
 # 公共测试依赖（使用自定义 test_main.cpp 代替 gtest_main，以便在退出前 flush Logger）
 set(TEST_LIBS GTest::gtest pthread ${TBoxFramework_LIBRARIES})
 set(TEST_INCLUDES ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
@@ -57,6 +61,10 @@ function(configure_someip_test target_name)
                 ${COMMONAPI_LIBRARIES}
                 ${COMMONAPI_SOMEIP_LIBRARIES}
         )
+    endif()
+    if(USE_REAL_IPC)
+        target_include_directories(${target_name} PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)
+        target_link_libraries(${target_name} PRIVATE tbox::tbox_tsp_client)
     endif()
 endfunction()
 
@@ -106,3 +114,13 @@ add_test(NAME LogEventsTests COMMAND test_log_events)
 add_test(NAME SomeipContextTests COMMAND test_someip_context)
 add_test(NAME SomeipIntegrationTests COMMAND test_someip_integration)
 add_test(NAME LogIntegrationTests COMMAND test_log_integration)
+
+# ============================================================
+# CR-005: TSP client adapter 测试（仅 USE_REAL_IPC）
+# ============================================================
+if(USE_REAL_IPC)
+    add_executable(test_tsp_client_adapter unit/test_tsp_client_adapter.cpp
+        ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
+    configure_someip_test(test_tsp_client_adapter)
+    add_test(NAME TspClientAdapterTests COMMAND test_tsp_client_adapter)
+endif()

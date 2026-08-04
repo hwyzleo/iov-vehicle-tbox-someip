@@ -8,15 +8,22 @@ someip:
   enable_remote_cmd_relay: true
   enable_fota_relay: true
 
-log:
-  type: console
-  path: ./log.txt
-  level: INFO
-  modules:
-    runtime: INFO
-    sd: INFO
-    method: DEBUG
-    event: DEBUG
-    ipc_bridge: INFO
-    serializer: INFO
-    fota_relay: INFO
+  # IPC 桥接配置 (CR-005)：通过 TBOX 域 client facade 访问内部服务
+  ipc_bridge:
+    tsp_socket_path: /tmp/tbox-tsp.sock
+    default_timeout_ms: 3000
+    event_queue_size: 256
+
+  # 服务级日志覆盖（someip.log.* 覆盖 common.log.*，见 src/main.cpp）
+  log:
+    type: console
+    path: ./log.txt
+    level: INFO
+    modules:
+      runtime: INFO
+      sd: INFO
+      method: DEBUG
+      event: DEBUG
+      ipc_bridge: INFO
+      serializer: INFO
+      fota_relay: INFO

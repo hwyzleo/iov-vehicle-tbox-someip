@@ -110,6 +110,11 @@ int main(int argc, char* argv[]) {
     config.enable_remote_cmd_relay = cfg->getBool("someip.enable_remote_cmd_relay", true);
     config.enable_fota_relay = cfg->getBool("someip.enable_fota_relay", true);
 
+    // IPC 桥接配置 (CR-005)
+    config.tsp_ipc_socket_path = cfg->getString("someip.ipc_bridge.tsp_socket_path", "/tmp/tbox-tsp.sock");
+    config.ipc_default_timeout_ms = static_cast<uint32_t>(cfg->getInt("someip.ipc_bridge.default_timeout_ms", 3000));
+    config.ipc_event_queue_size = static_cast<uint32_t>(cfg->getInt("someip.ipc_bridge.event_queue_size", 256));
+
     // 6. 创建并初始化守护进程
     tbox::someip::SomeipDaemon daemon;
 

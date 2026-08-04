@@ -16,10 +16,10 @@ public:
     void subscribeNetStatusChanges(NetStatusCallback callback) override {}
     void subscribeRemoteCommands(RemoteCommandCallback callback) override {}
     
-    ErrorCode reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) override {
+    BridgeCallResult reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) override {
         last_snapshot = snapshot;
         report_called = true;
-        return ErrorCode::SUCCESS;
+        return BridgeCallResult{BridgeOutcome::SUCCESS, 0, ""};
     }
     
     void subscribeFotaCommands(FotaCommandCallback callback) override {
@@ -85,7 +85,7 @@ TEST_F(FotaRelayTest, ReportSoftwareInventorySuccess) {
     snapshot.snapshot_seq = 1;
     
     auto result = relay->reportSoftwareInventory(snapshot);
-    EXPECT_EQ(result, ErrorCode::SUCCESS);
+    EXPECT_EQ(result.outcome, BridgeOutcome::SUCCESS);
     EXPECT_TRUE(mock_client->report_called);
     EXPECT_EQ(mock_client->last_snapshot.vin, "TESTVIN1234567890");
 }
@@ -97,7 +97,7 @@ TEST_F(FotaRelayTest, ReportSoftwareInventoryWhenStopped) {
     snapshot.vin = "TESTVIN1234567890";
     
     auto result = relay->reportSoftwareInventory(snapshot);
-    EXPECT_EQ(result, ErrorCode::CLIENT_CALL_FAILED);
+    EXPECT_EQ(result.outcome, BridgeOutcome::FAILED);
 }
 
 TEST_F(FotaRelayTest, SubscribeFotaCommands) {

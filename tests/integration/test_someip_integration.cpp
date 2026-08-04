@@ -44,8 +44,8 @@ public:
     }
     void subscribeNetStatusChanges(NetStatusCallback callback) override {}
     void subscribeRemoteCommands(RemoteCommandCallback callback) override {}
-    ErrorCode reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) override {
-        return ErrorCode::SUCCESS;
+    BridgeCallResult reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) override {
+        return BridgeCallResult{BridgeOutcome::SUCCESS, 0, ""};
     }
     void subscribeFotaCommands(FotaCommandCallback callback) override {}
 };
