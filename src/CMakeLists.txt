@@ -1,5 +1,5 @@
 # ============================================================
-# tbox-someip daemon（CR-006：someip-runtime，staging: rootfs）
+# tbox_someip daemon（CR-006：someip-runtime，staging: rootfs）
 # ============================================================
 
 # 源文件列表
@@ -23,13 +23,13 @@ if(USE_REAL_IPC)
 endif()
 
 # 创建可执行文件
-add_executable(tbox-someip ${SOURCES})
-set_target_properties(tbox-someip PROPERTIES
+add_executable(tbox_someip ${SOURCES})
+set_target_properties(tbox_someip PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
 # 包含目录
-target_include_directories(tbox-someip
+target_include_directories(tbox_someip
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/src
@@ -39,7 +39,7 @@ target_include_directories(tbox-someip
 if(USE_MOCK_SOMEIP)
     # 模拟实现不需要额外链接
 else()
-    target_link_libraries(tbox-someip
+    target_link_libraries(tbox_someip
         PRIVATE
             PkgConfig::VSOMEIP
             PkgConfig::COMMONAPI
@@ -48,12 +48,12 @@ else()
 endif()
 
 # TBOX framework 组件（config/log/ipc）
-target_link_libraries(tbox-someip PRIVATE pthread ${SOMEIP_FRAMEWORK_LIBS})
+target_link_libraries(tbox_someip PRIVATE pthread ${SOMEIP_FRAMEWORK_LIBS})
 
 if(USE_REAL_IPC)
-    target_include_directories(tbox-someip PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)
+    target_include_directories(tbox_someip PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)
     # 冻结 release-set SDK（CR-006 §11.3：installed package targets only）
-    target_link_libraries(tbox-someip PRIVATE tbox::tsp_client tbox::prov_client)
+    target_link_libraries(tbox_someip PRIVATE tbox::tsp_client tbox::prov_client)
 endif()
 
 # ============================================================
@@ -64,7 +64,7 @@ endif()
 # ============================================================
 
 # --- someip-runtime: daemon binary ---
-install(TARGETS tbox-someip
+install(TARGETS tbox_someip
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     COMPONENT someip-runtime
 )

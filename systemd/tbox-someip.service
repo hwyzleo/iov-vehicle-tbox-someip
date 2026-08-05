@@ -7,13 +7,12 @@
 
 [Unit]
 Description=TBOX SOME/IP Service
-Documentation=https://app.notion.com/TBOX-SOMEIP-SPEC
-After=network-online.target tsp.service prov.service
+After=network-online.target tbox-tsp.service tbox-prov.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/tbox-someip
+ExecStart=/usr/bin/tbox_someip
 Restart=on-failure
 RestartSec=5
 UMask=0077
@@ -34,7 +33,7 @@ LimitNPROC=4096
 # 日志
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=tbox-someip
+SyslogIdentifier=tbox_someip
 
 [Install]
 WantedBy=multi-user.target

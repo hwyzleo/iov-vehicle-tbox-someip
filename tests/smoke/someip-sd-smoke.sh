@@ -31,9 +31,9 @@ if ! systemctl restart tbox-someip.service; then
 fi
 sleep 2
 
-COUNT=$(pgrep -x tbox-someip | wc -l | tr -d ' ')
+COUNT=$(pgrep -x tbox_someip | wc -l | tr -d ' ')
 if [ "${COUNT}" -ne 1 ]; then
-    echo "FAIL: expected exactly 1 tbox-someip process, found ${COUNT}"
+    echo "FAIL: expected exactly 1 tbox_someip process, found ${COUNT}"
     exit 1
 fi
 

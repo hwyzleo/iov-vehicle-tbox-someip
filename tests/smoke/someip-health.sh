@@ -13,9 +13,9 @@ if ! systemctl is-active --quiet tbox-someip.service; then
 fi
 
 # 全系统唯一实例（US-004：不得被其他进程自行 fork）
-COUNT=$(pgrep -x tbox-someip | wc -l | tr -d ' ')
+COUNT=$(pgrep -x tbox_someip | wc -l | tr -d ' ')
 if [ "${COUNT}" -ne 1 ]; then
-    echo "FAIL: expected exactly 1 tbox-someip process, found ${COUNT}"
+    echo "FAIL: expected exactly 1 tbox_someip process, found ${COUNT}"
     exit 1
 fi
 

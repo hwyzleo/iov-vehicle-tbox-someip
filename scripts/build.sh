@@ -315,14 +315,14 @@ show_summary() {
     echo "构建类型:   ${BUILD_TYPE}"
     echo ""
     echo "构建产物:"
-    echo "  - 主程序:      ${BUILD_DIR}/src/tbox-someip"
+    echo "  - 主程序:      ${BUILD_DIR}/src/tbox_someip"
     if [ "$RUN_TESTS" = true ]; then
         echo "  - 单元测试:    ${BUILD_DIR}/tests/test_fota_relay"
         echo "  - 集成测试:    ${BUILD_DIR}/tests/test_someip_integration"
     fi
     echo ""
     echo "使用方法:"
-    echo "  ${BUILD_DIR}/src/tbox-someip --help"
+    echo "  ${BUILD_DIR}/src/tbox_someip --help"
     if [ "$RUN_TESTS" = true ]; then
         echo "  ${BUILD_DIR}/tests/test_fota_relay"
         echo "  ${BUILD_DIR}/tests/test_someip_integration"
