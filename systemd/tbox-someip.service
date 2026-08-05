@@ -2,7 +2,7 @@
 # - After=network-online.target：SOME/IP-SD Offer 需网络就绪；用 Wants 而非
 #   Requires（网络晚到 → 延迟 Offer/暂不可用，不阻塞启动）。
 # - After=tsp.service prov.service：SOMEIP 作为 consumer 连接 TSP/PROV 的
-#   IPC socket（USE_REAL_IPC 事实）；依赖未就绪时保持延迟 Offer 语义。
+#   IPC socket（唯一对内接入方式）；依赖未就绪时保持延迟 Offer/按需重连语义。
 # - 构建依赖（framework 无 unit）不得机械转成 systemd Requires=。
 
 [Unit]

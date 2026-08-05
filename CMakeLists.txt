@@ -21,11 +21,10 @@ include(GNUInstallDirs)
 # CR-006 构建开关
 # ============================================================
 # USE_MOCK_SOMEIP=OFF (默认): 真实 vsomeip/CommonAPI runtime（Orin 正式构建）。
-#   ON: 本地开发/单测使用 mock 实现（scripts/build.sh 显式传入）。
-# USE_REAL_IPC=ON: 使用 TBOX 域 client facade（tbox::tsp_client / tbox::prov_client）
-#   替代 mock client 桩；由 BUILD 经 cmake_cache_variables 注入冻结 SDK。
+#   ON: 本地开发/单测使用 mock vsomeip 实现（scripts/build.sh 显式传入）。
+#   注意：此开关仅影响对外 SOME/IP（vsomeip）实现，与对内 IPC 无关。
+#   对内 TSP/PROV 始终经 framework-ipc 域 client facade 接入真实后端，无 mock 桩。
 option(USE_MOCK_SOMEIP "Use mock SOME/IP implementation instead of vsomeip" OFF)
-option(USE_REAL_IPC "Use real framework-ipc domain client facades (tsp_client/prov_client)" OFF)
 
 # ============================================================
 # TBOX SDK 消费（CR-006 §11.3：installed package/targets only）
@@ -43,18 +42,15 @@ set(SOMEIP_FRAMEWORK_LIBS
     TBoxFramework::ipc
 )
 
-if(USE_REAL_IPC)
-    message(STATUS "Using real framework-ipc domain client facades (tsp_client/prov_client)")
-    add_definitions(-DUSE_REAL_IPC)
-    # TSP client（CR-005：FOTA 上行/下行桥接）
-    if(NOT TARGET tbox::tsp_client)
-        find_package(TboxTspClient CONFIG REQUIRED)
-    endif()
-    # PROV client（CR-006：BUILD 注入冻结 release-set SDK；首批 client 接入，
-    # 代码层 prov 业务链路按设计 §10.4 分步迁移，在能力定版 CR 实现）
-    if(NOT TARGET tbox::prov_client)
-        find_package(TboxProvClient CONFIG REQUIRED)
-    endif()
+# framework-ipc 域 client facade（始终链接：门面服务唯一的对内接入方式）
+message(STATUS "Using framework-ipc domain client facades (tsp_client/prov_client)")
+# TSP client（CR-005：FOTA 上行/下行桥接）
+if(NOT TARGET tbox::tsp_client)
+    find_package(TboxTspClient CONFIG REQUIRED)
+endif()
+# PROV client（CR-006：配置/绑定只读链路）
+if(NOT TARGET tbox::prov_client)
+    find_package(TboxProvClient CONFIG REQUIRED)
 endif()
 
 # ============================================================

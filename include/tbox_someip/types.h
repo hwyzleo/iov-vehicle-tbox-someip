@@ -21,7 +21,7 @@ namespace someip_addressing {
 // Method ID（service-scoped，0x0001–0x7FFF）
 namespace method_ids {
     constexpr uint16_t REPORT_SOFTWARE_INVENTORY = 0x0001;  // FOTA 上行
-    // 后续 CR 为 TimeSync/Location/NetStatus/RemoteCmdRelay 分配
+    // 后续 CR 为 NetStatus/RemoteCmdRelay 分配
 } // namespace method_ids
 
 // Event ID（service-scoped，0x8000–0xFFFF）
@@ -29,24 +29,6 @@ namespace event_ids {
     constexpr uint16_t FOTA_COMMAND = 0x8001;  // FOTA 下行（预留）
     // 后续 CR 为其他能力分配
 } // namespace event_ids
-
-// 时间同步数据结构
-struct TimeData {
-    std::chrono::system_clock::time_point timestamp;
-    int64_t utc_seconds;
-    int32_t utc_offset;
-    bool is_valid;
-};
-
-// 位置数据结构
-struct PositionData {
-    double latitude;      // 纬度（度）
-    double longitude;     // 经度（度）
-    double altitude;      // 海拔（米）
-    double speed;         // 车速（km/h）
-    double heading;       // 航向（度）
-    bool is_valid;
-};
 
 // 网络状态数据结构
 struct NetStatusData {
@@ -116,8 +98,6 @@ struct BridgeCallResult {
 };
 
 // 回调类型定义
-using TimeUpdateCallback = std::function<void(const TimeData&)>;
-using PositionCallback = std::function<void(const PositionData&)>;
 using NetStatusCallback = std::function<void(const NetStatusData&)>;
 using RemoteCommandCallback = std::function<void(const RemoteCommand&)>;
 using FotaCommandCallback = std::function<void(const FotaCommand&)>;

@@ -63,15 +63,15 @@ bool FotaRelayService::initialize() {
     }
 
     if (!tsp_client_->initialize()) {
-        SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
-            "Failed to initialize TSP client",
-            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
-             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("initialize")),
-             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
-             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
-        );
-        return false;
-    }
+            // 非致命：后端 daemon 未就绪时按需重连（framework-ipc client 含重连重试），
+            // 不阻塞门面服务启动。
+            SomeipLogAdapter::ipc_bridge().warn("someip.ipc.tsp.connect_deferred",
+                "TSP client not connected yet; will reconnect on demand",
+                {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
+                 tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("initialize")),
+                 tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("deferred"))}
+            );
+        }
 
     state_ = ServiceState::INITIALIZING;
     SomeipLogAdapter::fota_relay().info("someip.fota.initialized",

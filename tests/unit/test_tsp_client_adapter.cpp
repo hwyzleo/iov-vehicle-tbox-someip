@@ -1,6 +1,6 @@
 // TspClientAdapter 单元测试 (CR-005)
 //
-// 仅在 USE_REAL_IPC 模式下编译。测试静态纯函数（DTO 转换、错误映射），
+// 测试静态纯函数（DTO 转换、错误映射），
 // 不依赖真实 TSP daemon socket。
 
 #include <gtest/gtest.h>

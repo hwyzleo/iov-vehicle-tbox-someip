@@ -21,26 +21,6 @@ public:
     virtual void shutdown() = 0;
 };
 
-// GNSS Client 接口
-class IGnssClient : public IIpcClient {
-public:
-    // 获取当前位置
-    virtual ErrorCode getPosition(PositionData& position) = 0;
-    
-    // 订阅位置更新
-    virtual void subscribePositionUpdates(PositionCallback callback) = 0;
-};
-
-// RTC Client 接口
-class IRtcClient : public IIpcClient {
-public:
-    // 获取当前时间
-    virtual ErrorCode getTime(TimeData& time) = 0;
-    
-    // 订阅时间更新
-    virtual void subscribeTimeUpdates(TimeUpdateCallback callback) = 0;
-};
-
 // TSP/MQTT Client 接口
 class ITspClient : public IIpcClient {
 public:

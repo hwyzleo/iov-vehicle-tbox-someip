@@ -2,9 +2,8 @@
 #include "tbox_someip/someip_log_adapter.h"
 #include "tbox_someip/someip_context.h"
 
-#ifdef USE_REAL_IPC
 #include "bridge/tsp_client_adapter.h"
-#endif
+#include "bridge/prov_client_adapter.h"
 
 #include <csignal>
 #include <sstream>
@@ -12,60 +11,6 @@
 #include <vector>
 #include <stdexcept>
 #include <chrono>
-
-// Mock IPC clients (always compiled; used in mock mode and as placeholders in real mode)
-namespace {
-
-class MockRtcClient : public tbox::someip::IRtcClient {
-public:
-    bool initialize() override { return true; }
-    bool isConnected() const override { return true; }
-    void shutdown() override {}
-    tbox::someip::ErrorCode getTime(tbox::someip::TimeData& time) override {
-        time.is_valid = true;
-        return tbox::someip::ErrorCode::SUCCESS;
-    }
-    void subscribeTimeUpdates(tbox::someip::TimeUpdateCallback callback) override {}
-};
-
-class MockGnssClient : public tbox::someip::IGnssClient {
-public:
-    bool initialize() override { return true; }
-    bool isConnected() const override { return true; }
-    void shutdown() override {}
-    tbox::someip::ErrorCode getPosition(tbox::someip::PositionData& position) override {
-        position.is_valid = true;
-        return tbox::someip::ErrorCode::SUCCESS;
-    }
-    void subscribePositionUpdates(tbox::someip::PositionCallback callback) override {}
-};
-
-class MockTspClient : public tbox::someip::ITspClient {
-public:
-    bool initialize() override { return true; }
-    bool isConnected() const override { return true; }
-    void shutdown() override {}
-    tbox::someip::ErrorCode getNetStatus(tbox::someip::NetStatusData& status) override {
-        status.is_valid = true;
-        return tbox::someip::ErrorCode::SUCCESS;
-    }
-    void subscribeNetStatusChanges(tbox::someip::NetStatusCallback callback) override {}
-    void subscribeRemoteCommands(tbox::someip::RemoteCommandCallback callback) override {}
-    tbox::someip::BridgeCallResult reportSoftwareInventory(const tbox::someip::VehicleSoftwareSnapshot& snapshot) override {
-        return tbox::someip::BridgeCallResult{tbox::someip::BridgeOutcome::SUCCESS, 0, ""};
-    }
-    void subscribeFotaCommands(tbox::someip::FotaCommandCallback callback) override {}
-};
-
-class MockProvClient : public tbox::someip::IProvClient {
-public:
-    bool initialize() override { return true; }
-    bool isConnected() const override { return true; }
-    void shutdown() override {}
-    std::string getConfiguration(const std::string& key) override { return ""; }
-};
-
-} // anonymous namespace
 
 namespace tbox {
 namespace someip {
@@ -240,26 +185,6 @@ bool SomeipDaemon::start() {
     }
 
     // 启动所有服务
-    if (time_sync_service_) {
-        if (!time_sync_service_->start()) {
-            SomeipLogAdapter::runtime().error("someip.runtime.service_start_failed",
-                "Failed to start TimeSync service",
-                {tbox::fw::log::Field("service_name", tbox::fw::log::FieldValue::makeString("time_sync"))}
-            );
-            return false;
-        }
-    }
-
-    if (location_service_) {
-        if (!location_service_->start()) {
-            SomeipLogAdapter::runtime().error("someip.runtime.service_start_failed",
-                "Failed to start Location service",
-                {tbox::fw::log::Field("service_name", tbox::fw::log::FieldValue::makeString("location"))}
-            );
-            return false;
-        }
-    }
-
     if (net_status_service_) {
         if (!net_status_service_->start()) {
             SomeipLogAdapter::runtime().error("someip.runtime.service_start_failed",
@@ -310,14 +235,6 @@ void SomeipDaemon::shutdown() {
     running_ = false;
 
     // 停止所有服务
-    if (time_sync_service_) {
-        time_sync_service_->stop();
-    }
-
-    if (location_service_) {
-        location_service_->stop();
-    }
-
     if (net_status_service_) {
         net_status_service_->stop();
     }
@@ -359,44 +276,43 @@ bool SomeipDaemon::initializeIpcClients() {
         "Initializing IPC clients..."
     );
 
-#ifdef USE_MOCK_SOMEIP
-    // Mock 模式：注册模拟的 IPC 客户端
-    SomeipLogAdapter::ipc_bridge().info("someip.ipc.using_mock",
-        "Using mock IPC clients"
-    );
-
-    ipc_bridge_->registerClient("rtc", std::make_shared<MockRtcClient>());
-    ipc_bridge_->registerClient("gnss", std::make_shared<MockGnssClient>());
-    ipc_bridge_->registerClient("tsp", std::make_shared<MockTspClient>());
-    ipc_bridge_->registerClient("prov", std::make_shared<MockProvClient>());
-#elif defined(USE_REAL_IPC)
-    // Real 模式：通过 framework-ipc 域 facade 接入 (CR-005)
+    // 门面服务始终通过真实 framework-ipc 域 facade 接入后端 TSP/PROV。
+    // 后端 daemon 未就绪不阻塞启动：注册后按需重连（client 含重连重试）。
+    // RTC/GNSS 暂未提供后端，未注册。
     SomeipLogAdapter::ipc_bridge().info("someip.ipc.using_real",
-        "Using real IPC clients via framework-ipc domain facades"
+        "Using framework-ipc domain client facades (tsp/prov)"
     );
 
-    // TSP: FOTA 链路走 tbox::tsp_client
+    // TSP: FOTA 上行/下行链路走 tbox::tsp_client (CR-005)
     TspAdapterConfig tsp_cfg;
     tsp_cfg.socket_path = config_.tsp_ipc_socket_path;
     tsp_cfg.default_timeout_ms = config_.ipc_default_timeout_ms;
     tsp_cfg.event_queue_size = config_.ipc_event_queue_size;
     auto tsp_adapter = std::make_shared<TspClientAdapter>(tsp_cfg);
     if (!tsp_adapter->initialize()) {
-        SomeipLogAdapter::ipc_bridge().error("someip.ipc.tsp.init_failed",
-            "Failed to initialize TSP client adapter",
+        // 非致命：后端 daemon 可能尚未就绪。门面常驻服务照常启动，
+        // framework-ipc client 会在后续调用时按需重连（含一次重连重试）。
+        SomeipLogAdapter::ipc_bridge().warn("someip.ipc.tsp.connect_deferred",
+            "TSP daemon not reachable yet; registered adapter, will reconnect on demand",
             {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
-             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
-             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("deferred"))}
         );
-        return false;
     }
     ipc_bridge_->registerClient("tsp", tsp_adapter);
 
-    // GNSS/RTC/PROV: 对应 facade 未就绪，暂用 Mock 占位（后续 CR 迁移）
-    ipc_bridge_->registerClient("rtc", std::make_shared<MockRtcClient>());
-    ipc_bridge_->registerClient("gnss", std::make_shared<MockGnssClient>());
-    ipc_bridge_->registerClient("prov", std::make_shared<MockProvClient>());
-#endif
+    // PROV: 配置/绑定只读链路走 tbox::prov_client (CR-006)
+    ProvAdapterConfig prov_cfg;
+    prov_cfg.socket_path = config_.prov_ipc_socket_path;
+    auto prov_adapter = std::make_shared<ProvClientAdapter>(prov_cfg);
+    if (!prov_adapter->initialize()) {
+        // 非致命：同 TSP，按需重连。
+        SomeipLogAdapter::ipc_bridge().warn("someip.ipc.prov.connect_deferred",
+            "PROV daemon not reachable yet; registered adapter, will reconnect on demand",
+            {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("prov")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("deferred"))}
+        );
+    }
+    ipc_bridge_->registerClient("prov", prov_adapter);
 
     return true;
 }
@@ -405,30 +321,6 @@ bool SomeipDaemon::initializeServices() {
     SomeipLogAdapter::runtime().info("someip.runtime.services_initializing",
         "Initializing services..."
     );
-
-    // 初始化 TimeSync 服务
-    if (config_.enable_time_sync) {
-        time_sync_service_ = std::make_unique<TimeSyncService>(ipc_bridge_.get());
-        if (!time_sync_service_->initialize()) {
-            SomeipLogAdapter::runtime().error("someip.runtime.service_init_failed",
-                "Failed to initialize TimeSync service",
-                {tbox::fw::log::Field("service_name", tbox::fw::log::FieldValue::makeString("time_sync"))}
-            );
-            return false;
-        }
-    }
-
-    // 初始化 Location 服务
-    if (config_.enable_location) {
-        location_service_ = std::make_unique<LocationService>(ipc_bridge_.get());
-        if (!location_service_->initialize()) {
-            SomeipLogAdapter::runtime().error("someip.runtime.service_init_failed",
-                "Failed to initialize Location service",
-                {tbox::fw::log::Field("service_name", tbox::fw::log::FieldValue::makeString("location"))}
-            );
-            return false;
-        }
-    }
 
     // 初始化 NetStatus 服务
     if (config_.enable_net_status) {

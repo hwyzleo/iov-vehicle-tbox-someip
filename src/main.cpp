@@ -104,14 +104,13 @@ int main(int argc, char* argv[]) {
 
     // 5. 从配置读取服务参数
     tbox::someip::ServiceConfig config;
-    config.enable_time_sync = cfg->getBool("someip.enable_time_sync", true);
-    config.enable_location = cfg->getBool("someip.enable_location", true);
     config.enable_net_status = cfg->getBool("someip.enable_net_status", true);
     config.enable_remote_cmd_relay = cfg->getBool("someip.enable_remote_cmd_relay", true);
     config.enable_fota_relay = cfg->getBool("someip.enable_fota_relay", true);
 
-    // IPC 桥接配置 (CR-005)
+    // IPC 桥接配置 (CR-005/CR-006)
     config.tsp_ipc_socket_path = cfg->getString("someip.ipc_bridge.tsp_socket_path", "/tmp/tbox-tsp.sock");
+    config.prov_ipc_socket_path = cfg->getString("someip.ipc_bridge.prov_socket_path", "/tmp/tbox-prov.sock");
     config.ipc_default_timeout_ms = static_cast<uint32_t>(cfg->getInt("someip.ipc_bridge.default_timeout_ms", 3000));
     config.ipc_event_queue_size = static_cast<uint32_t>(cfg->getInt("someip.ipc_bridge.event_queue_size", 256));
 

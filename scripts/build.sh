@@ -44,6 +44,11 @@ INSTALL_AFTER_BUILD=false
 USE_MOCK=true
 BUILD_TYPE="Debug"
 
+# framework-ipc 域 client facade（TSP/PROV）安装包目录（默认取自 TBOX_PREFIX）
+# 门面服务始终经真实 IPC 接入后端，无 mock 桩。
+TBoxTspClient_DIR="${TBoxTspClient_DIR:-${TBOX_PREFIX}/lib/cmake/TboxTspClient}"
+TBoxProvClient_DIR="${TBoxProvClient_DIR:-${TBOX_PREFIX}/lib/cmake/TboxProvClient}"
+
 # 显示帮助信息
 show_help() {
     echo "用法: $0 [选项]"
@@ -216,6 +221,7 @@ clean_build() {
 configure_project() {
     print_info "配置 CMake 项目..."
     print_info "  SOME/IP 模式: $([ "$USE_MOCK" = true ] && echo "Mock" || echo "Real vsomeip")"
+    print_info "  IPC 模式: Real framework-ipc (TSP/PROV)"
     print_info "  构建类型: ${BUILD_TYPE}"
 
     mkdir -p "$BUILD_DIR"
@@ -224,6 +230,8 @@ configure_project() {
     cmake .. \
         -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
         -DTBoxFramework_DIR="${TBoxFramework_DIR}" \
+        -DTboxTspClient_DIR="${TBoxTspClient_DIR}" \
+        -DTboxProvClient_DIR="${TBoxProvClient_DIR}" \
         -DUSE_MOCK_SOMEIP=$([ "$USE_MOCK" = true ] && echo "ON" || echo "OFF") \
         -DBUILD_TESTS=$([ "$RUN_TESTS" = true ] && echo "ON" || echo "OFF")
 
@@ -312,6 +320,7 @@ show_summary() {
     echo "项目根目录: ${PROJECT_ROOT}"
     echo "构建目录:   ${BUILD_DIR}"
     echo "构建模式:   $([ "$USE_MOCK" = true ] && echo "Mock SOME/IP" || echo "Real vsomeip")"
+    echo "IPC 模式:   Real framework-ipc (TSP/PROV)"
     echo "构建类型:   ${BUILD_TYPE}"
     echo ""
     echo "构建产物:"

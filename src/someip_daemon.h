@@ -3,8 +3,6 @@
 #include "tbox_someip/config.h"
 #include "ipc_bridge.h"
 #include "service_discovery.h"
-#include "services/time_sync.h"
-#include "services/location.h"
 #include "services/net_status.h"
 #include "services/remote_cmd_relay.h"
 #include "services/fota_relay.h"
@@ -57,8 +55,6 @@ private:
     std::unique_ptr<IpcBridge> ipc_bridge_;
     std::unique_ptr<ServiceDiscovery> service_discovery_;
     
-    std::unique_ptr<TimeSyncService> time_sync_service_;
-    std::unique_ptr<LocationService> location_service_;
     std::unique_ptr<NetStatusService> net_status_service_;
     std::unique_ptr<RemoteCmdRelayService> remote_cmd_relay_service_;
     std::unique_ptr<FotaRelayService> fota_relay_service_;

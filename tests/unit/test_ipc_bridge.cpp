@@ -3,17 +3,13 @@
 
 using namespace tbox::someip;
 
-// 模拟 GNSS 客户端
-class MockGnssClient : public IGnssClient {
+// 模拟 PROV 客户端（通用注册/查找测试用）
+class MockProvClient : public IProvClient {
 public:
     bool initialize() override { return true; }
     bool isConnected() const override { return true; }
     void shutdown() override {}
-    ErrorCode getPosition(PositionData& position) override {
-        position = {39.9042, 116.4074, 50.0, 60.0, 90.0, true};
-        return ErrorCode::SUCCESS;
-    }
-    void subscribePositionUpdates(PositionCallback callback) override {}
+    std::string getConfiguration(const std::string& key) override { return ""; }
 };
 
 class IpcBridgeTest : public ::testing::Test {
@@ -47,18 +43,18 @@ TEST_F(IpcBridgeTest, RegisterClient) {
     EXPECT_TRUE(bridge->initialize());
     
     // 创建模拟客户端
-    auto mock_client = std::make_shared<MockGnssClient>();
-    EXPECT_TRUE(bridge->registerClient("gnss", mock_client));
+    auto mock_client = std::make_shared<MockProvClient>();
+    EXPECT_TRUE(bridge->registerClient("prov", mock_client));
 }
 
 TEST_F(IpcBridgeTest, GetClient) {
     // 测试获取客户端
     EXPECT_TRUE(bridge->initialize());
     
-    auto mock_client = std::make_shared<MockGnssClient>();
-    bridge->registerClient("gnss", mock_client);
+    auto mock_client = std::make_shared<MockProvClient>();
+    bridge->registerClient("prov", mock_client);
     
-    auto retrieved = bridge->getClient("gnss");
+    auto retrieved = bridge->getClient("prov");
     EXPECT_EQ(retrieved, mock_client);
 }
 

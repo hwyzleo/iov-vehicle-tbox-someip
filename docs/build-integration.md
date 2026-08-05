@@ -46,15 +46,15 @@ Wants=network-online.target
 - `After=network-online.target`：SOME/IP-SD Offer 需网络就绪；用 `Wants` 而非
   `Requires`（网络晚到 → 延迟 Offer/暂不可用，不阻塞启动）。
 - `After=tsp.service prov.service`：SOMEIP 作为 consumer 连接 TSP/PROV 的
-  IPC socket（USE_REAL_IPC 事实）；依赖未就绪时保持延迟 Offer 语义。
+  IPC socket（唯一对内接入方式）；依赖未就绪时保持延迟 Offer/按需重连语义。
 - 构建依赖（framework 无 unit）不得机械转成 systemd Requires=。
 
 ## 3. TBOX SDK 消费（installed packages only）
 
 ```cmake
 find_package(TboxFramework CONFIG REQUIRED)   # TBoxFramework::config/log/ipc
-find_package(TboxTspClient CONFIG REQUIRED)   # tbox::tsp_client   (USE_REAL_IPC)
-find_package(TboxProvClient CONFIG REQUIRED)  # tbox::prov_client  (USE_REAL_IPC)
+find_package(TboxTspClient CONFIG REQUIRED)   # tbox::tsp_client（始终链接）
+find_package(TboxProvClient CONFIG REQUIRED)  # tbox::prov_client（始终链接）
 ```
 
 - 禁止 `add_subdirectory`、上游私有头文件、build-tree library、宿主绝对路径
@@ -89,17 +89,18 @@ find_package(TboxProvClient CONFIG REQUIRED)  # tbox::prov_client  (USE_REAL_IPC
 | 选项 | 默认 | 说明 |
 |---|---|---|---|
 | `USE_MOCK_SOMEIP` | OFF | mock SOME/IP（本地开发/单测，scripts/build.sh 显式 ON）；OFF = 真实 vsomeip/CommonAPI |
-| `USE_REAL_IPC` | OFF | 真实 TBOX 域 client facade（tsp/prov）；ON = 链接 tbox::tsp_client + tbox::prov_client |
 | `BUILD_TESTS` | OFF | 测试构建（BUILD 模式不构建 GTest；本地 build.sh 显式 ON） |
 
+对内 TSP/PROV 始终经 framework-ipc 域 client facade（tbox::tsp_client +
+tbox::prov_client）接入真实后端，无 mock IPC 桩，无构建开关。
+
 Orin 正式构建由 BUILD 经 `manifests/services.yaml` 的 `build.cmake_cache_variables`
-注入 `USE_REAL_IPC=ON` 与 `USE_MOCK_SOMEIP=OFF`（BUILD 通用机制，受控输入，
+注入 `USE_MOCK_SOMEIP=OFF`（BUILD 通用机制，受控输入，
 同 toolchain/sysroot 注入）：
 
 ```yaml
 build:
   cmake_cache_variables:
-    USE_REAL_IPC: "ON"
     USE_MOCK_SOMEIP: "OFF"
 ```
 

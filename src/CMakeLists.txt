@@ -11,16 +11,12 @@ set(SOURCES
     ipc_bridge.cpp
     someip_log_adapter.cpp
     someip_context.cpp
-    services/time_sync.cpp
-    services/location.cpp
     services/net_status.cpp
     services/remote_cmd_relay.cpp
     services/fota_relay.cpp
+    bridge/tsp_client_adapter.cpp
+    bridge/prov_client_adapter.cpp
 )
-
-if(USE_REAL_IPC)
-    list(APPEND SOURCES bridge/tsp_client_adapter.cpp)
-endif()
 
 # 创建可执行文件
 add_executable(tbox_someip ${SOURCES})
@@ -50,11 +46,9 @@ endif()
 # TBOX framework 组件（config/log/ipc）
 target_link_libraries(tbox_someip PRIVATE pthread ${SOMEIP_FRAMEWORK_LIBS})
 
-if(USE_REAL_IPC)
-    target_include_directories(tbox_someip PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)
-    # 冻结 release-set SDK（CR-006 §11.3：installed package targets only）
-    target_link_libraries(tbox_someip PRIVATE tbox::tsp_client tbox::prov_client)
-endif()
+# framework-ipc 域 client facade（TSP/PROV adapter 始终链接）
+target_include_directories(tbox_someip PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)
+target_link_libraries(tbox_someip PRIVATE tbox::tsp_client tbox::prov_client)
 
 # ============================================================
 # Install — someip-runtime（CR-006 §8：staging rootfs，逻辑 prefix /usr）

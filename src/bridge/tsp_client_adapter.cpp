@@ -1,6 +1,6 @@
 // TspClientAdapter 实现 (CR-005)
 //
-// 仅在 USE_REAL_IPC 模式下编译。封装 tbox::tsp::TspClient facade。
+// 封装 tbox::tsp::TspClient facade。
 
 #include "tsp_client_adapter.h"
 

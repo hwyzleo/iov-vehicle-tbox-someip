@@ -6,58 +6,10 @@
 
 using namespace tbox::someip;
 
-// Mock RTC Client
-class MockRtcClient : public IRtcClient {
-public:
-    bool initialize() override { return true; }
-    bool isConnected() const override { return true; }
-    void shutdown() override {}
-    ErrorCode getTime(TimeData& time) override {
-        time.is_valid = true;
-        return ErrorCode::SUCCESS;
-    }
-    void subscribeTimeUpdates(TimeUpdateCallback callback) override {}
-};
-
-// Mock GNSS Client
-class MockGnssClient : public IGnssClient {
-public:
-    bool initialize() override { return true; }
-    bool isConnected() const override { return true; }
-    void shutdown() override {}
-    ErrorCode getPosition(PositionData& position) override {
-        position.is_valid = true;
-        return ErrorCode::SUCCESS;
-    }
-    void subscribePositionUpdates(PositionCallback callback) override {}
-};
-
-// Mock TSP Client
-class MockTspClient : public ITspClient {
-public:
-    bool initialize() override { return true; }
-    bool isConnected() const override { return true; }
-    void shutdown() override {}
-    ErrorCode getNetStatus(NetStatusData& status) override {
-        status.is_valid = true;
-        return ErrorCode::SUCCESS;
-    }
-    void subscribeNetStatusChanges(NetStatusCallback callback) override {}
-    void subscribeRemoteCommands(RemoteCommandCallback callback) override {}
-    BridgeCallResult reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) override {
-        return BridgeCallResult{BridgeOutcome::SUCCESS, 0, ""};
-    }
-    void subscribeFotaCommands(FotaCommandCallback callback) override {}
-};
-
-// Mock PROV Client
-class MockProvClient : public IProvClient {
-public:
-    bool initialize() override { return true; }
-    bool isConnected() const override { return true; }
-    void shutdown() override {}
-    std::string getConfiguration(const std::string& key) override { return ""; }
-};
+// 说明：daemon 内部始终注册真实 framework-ipc 域 client（TSP/PROV）。
+// 如需隔离后端，应在测试中 mock 对端 IPC 服务（unix socket 上的 peer），
+// 而非在此提供 client 桩。以下生命周期测试依赖门面服务的延迟连接语义
+// （后端未就绪时仍能启动）。
 
 class SomeipIntegrationTest : public ::testing::Test {
 protected:
@@ -78,8 +30,6 @@ TEST_F(SomeipIntegrationTest, FullServiceLifecycle) {
     // 测试完整的服务生命周期
     
     ServiceConfig config;
-    config.enable_time_sync = true;
-    config.enable_location = true;
     config.enable_net_status = true;
     config.enable_remote_cmd_relay = true;
     config.enable_fota_relay = true;
@@ -101,8 +51,6 @@ TEST_F(SomeipIntegrationTest, FotaRelayOnly) {
     // 仅测试 FOTA 中继服务
     
     ServiceConfig config;
-    config.enable_time_sync = false;
-    config.enable_location = false;
     config.enable_net_status = false;
     config.enable_remote_cmd_relay = false;
     config.enable_fota_relay = true;
@@ -122,8 +70,6 @@ TEST_F(SomeipIntegrationTest, ServiceDiscoveryUnified) {
     
     ServiceConfig config;
     config.enable_sd = true;
-    config.enable_time_sync = false;
-    config.enable_location = false;
     config.enable_net_status = false;
     config.enable_remote_cmd_relay = false;
     config.enable_fota_relay = false;
@@ -140,8 +86,6 @@ TEST_F(SomeipIntegrationTest, MultipleStartStop) {
     // 测试多次启停
     
     ServiceConfig config;
-    config.enable_time_sync = false;
-    config.enable_location = false;
     config.enable_net_status = false;
     config.enable_remote_cmd_relay = false;
     config.enable_fota_relay = false;

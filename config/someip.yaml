@@ -2,15 +2,14 @@
 # 覆盖 common.log.* 中的日志级别和模块级别
 someip:
   # 服务实例配置
-  enable_time_sync: true
-  enable_location: true
   enable_net_status: true
   enable_remote_cmd_relay: true
   enable_fota_relay: true
 
-  # IPC 桥接配置 (CR-005)：通过 TBOX 域 client facade 访问内部服务
+  # IPC 桥接配置 (CR-005/CR-006)：通过 TBOX 域 client facade 访问内部服务
   ipc_bridge:
     tsp_socket_path: /tmp/tbox-tsp.sock
+    prov_socket_path: /tmp/tbox-prov.sock
     default_timeout_ms: 3000
     event_queue_size: 256
 

@@ -2,7 +2,7 @@
 
 // TspClientAdapter (CR-005)
 //
-// 仅在 USE_REAL_IPC 模式下编译/引用。通过 tbox::tsp::TspClient
+// 通过 tbox::tsp::TspClient
 // (framework-ipc 域 facade) 访问 TSP daemon。
 //
 // 边界：
