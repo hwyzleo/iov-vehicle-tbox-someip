@@ -1,0 +1,56 @@
+# TBOX-SOMEIP 本地调试服务配置（CR-007 §2/§5）
+# 仅用于本地开发/测试。config/dev/** 不进入 someip-runtime install / production package。
+# 本地调试通过显式 dev profile 指向 config/dev/**（见 CR-007 §5 Runtime 加载）。
+someip:
+  config_version: 1
+
+  # 服务开关（仅 dev profile 使用；production schema 拒绝这些键，CR-007 §8 REQ-008）
+  enable_net_status: true
+  enable_remote_cmd_relay: true
+  enable_fota_relay: true
+
+  # 寻址（CR-007 方案 C：config 为运行时 SSOT，代码读取；types.h 为基线默认值）
+  service:
+    service_id: 0x6101
+    instance_id: 0x0001
+    transport: TCP
+    port: 56101
+
+  service_discovery:
+    protocol: UDP
+    port: 30490
+    initial_delay_ms: 10
+    repetition_base_delay_ms: 200
+
+  members:
+    report_software_inventory:
+      type: method
+      id: 0x0001
+    fota_command:
+      type: event
+      id: 0x8001
+
+  bridge:
+    request_deadline_ms: 3000
+    queue_capacity: 256
+    worker_count: 1
+
+  clients:
+    tsp:
+      socket_path: /tmp/tbox-tsp.sock
+      connect_timeout_ms: 3000
+    prov:
+      socket_path: /tmp/tbox-prov.sock
+      connect_timeout_ms: 3000
+
+  # 服务级日志覆盖（someip.log.* 覆盖 common.log.*，见 src/main.cpp）
+  log:
+    level: INFO
+    modules:
+      runtime: INFO
+      sd: INFO
+      method: DEBUG
+      event: DEBUG
+      ipc_bridge: INFO
+      serializer: INFO
+      fota_relay: INFO

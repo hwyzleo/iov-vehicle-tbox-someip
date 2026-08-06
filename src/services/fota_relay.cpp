@@ -8,10 +8,12 @@
 namespace tbox {
 namespace someip {
 
-FotaRelayService::FotaRelayService(IpcBridge* bridge)
+FotaRelayService::FotaRelayService(IpcBridge* bridge, uint16_t service_id, uint16_t instance_id)
     : bridge_(bridge)
     , state_(ServiceState::UNAVAILABLE)
-    , running_(false) {}
+    , running_(false)
+    , service_id_(service_id)
+    , instance_id_(instance_id) {}
 
 FotaRelayService::~FotaRelayService() {
     stop();
@@ -136,11 +138,11 @@ ServiceState FotaRelayService::getState() const {
 }
 
 uint16_t FotaRelayService::getServiceId() const {
-    return someip_addressing::SERVICE_ID;
+    return service_id_;
 }
 
 uint16_t FotaRelayService::getInstanceId() const {
-    return someip_addressing::INSTANCE_ID;
+    return instance_id_;
 }
 
 BridgeCallResult FotaRelayService::reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) {

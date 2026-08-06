@@ -102,17 +102,40 @@ int main(int argc, char* argv[]) {
         "TBOX-SOMEIP Service Starting"
     );
 
-    // 5. 从配置读取服务参数
+    // 5. 从配置读取服务参数（CR-007 方案 C：config 为运行时 SSOT；缺失字段 fallback 到 types.h 基线默认值）
     tbox::someip::ServiceConfig config;
+
+    // 寻址
+    config.service_id = static_cast<uint16_t>(cfg->getInt("someip.service.service_id", config.service_id));
+    config.instance_id = static_cast<uint16_t>(cfg->getInt("someip.service.instance_id", config.instance_id));
+    config.transport = cfg->getString("someip.service.transport", config.transport);
+    config.port = static_cast<uint16_t>(cfg->getInt("someip.service.port", config.port));
+
+    // 服务发现
+    config.sd_protocol = cfg->getString("someip.service_discovery.protocol", config.sd_protocol);
+    config.sd_port = static_cast<uint16_t>(cfg->getInt("someip.service_discovery.port", config.sd_port));
+    config.sd_initial_delay_ms = static_cast<uint32_t>(cfg->getInt("someip.service_discovery.initial_delay_ms", config.sd_initial_delay_ms));
+    config.sd_repetition_base_delay_ms = static_cast<uint32_t>(cfg->getInt("someip.service_discovery.repetition_base_delay_ms", config.sd_repetition_base_delay_ms));
+
+    // 成员 ID（Method/Event）
+    config.method_report_software_inventory_id = static_cast<uint16_t>(cfg->getInt("someip.members.report_software_inventory.id", config.method_report_software_inventory_id));
+    config.event_fota_command_id = static_cast<uint16_t>(cfg->getInt("someip.members.fota_command.id", config.event_fota_command_id));
+
+    // 桥接（CR-005/CR-006/CR-007）
+    config.bridge_request_deadline_ms = static_cast<uint32_t>(cfg->getInt("someip.bridge.request_deadline_ms", config.bridge_request_deadline_ms));
+    config.bridge_queue_capacity = static_cast<uint32_t>(cfg->getInt("someip.bridge.queue_capacity", config.bridge_queue_capacity));
+    config.bridge_worker_count = static_cast<uint32_t>(cfg->getInt("someip.bridge.worker_count", config.bridge_worker_count));
+
+    // 内部 client facade 连接
+    config.tsp.socket_path = cfg->getString("someip.clients.tsp.socket_path", config.tsp.socket_path);
+    config.tsp.connect_timeout_ms = static_cast<uint32_t>(cfg->getInt("someip.clients.tsp.connect_timeout_ms", config.tsp.connect_timeout_ms));
+    config.prov.socket_path = cfg->getString("someip.clients.prov.socket_path", config.prov.socket_path);
+    config.prov.connect_timeout_ms = static_cast<uint32_t>(cfg->getInt("someip.clients.prov.connect_timeout_ms", config.prov.connect_timeout_ms));
+
+    // 服务开关（默认 true；仅 dev profile 配置，production schema 拒绝 CR-007 §8 REQ-008）
     config.enable_net_status = cfg->getBool("someip.enable_net_status", true);
     config.enable_remote_cmd_relay = cfg->getBool("someip.enable_remote_cmd_relay", true);
     config.enable_fota_relay = cfg->getBool("someip.enable_fota_relay", true);
-
-    // IPC 桥接配置 (CR-005/CR-006)
-    config.tsp_ipc_socket_path = cfg->getString("someip.ipc_bridge.tsp_socket_path", "/tmp/tbox-tsp.sock");
-    config.prov_ipc_socket_path = cfg->getString("someip.ipc_bridge.prov_socket_path", "/tmp/tbox-prov.sock");
-    config.ipc_default_timeout_ms = static_cast<uint32_t>(cfg->getInt("someip.ipc_bridge.default_timeout_ms", 3000));
-    config.ipc_event_queue_size = static_cast<uint32_t>(cfg->getInt("someip.ipc_bridge.event_queue_size", 256));
 
     // 6. 创建并初始化守护进程
     tbox::someip::SomeipDaemon daemon;

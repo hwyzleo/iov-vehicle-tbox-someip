@@ -40,7 +40,7 @@ protected:
         mock_client = std::make_shared<MockTspClient>();
         bridge->registerClient("tsp", mock_client);
         
-        relay = std::make_unique<FotaRelayService>(bridge.get());
+        relay = std::make_unique<FotaRelayService>(bridge.get(), someip_addressing::SERVICE_ID, someip_addressing::INSTANCE_ID);
     }
     
     void TearDown() override {
@@ -62,7 +62,7 @@ TEST_F(FotaRelayTest, InitializeSuccess) {
 }
 
 TEST_F(FotaRelayTest, InitializeWithoutBridge) {
-    FotaRelayService no_bridge_relay(nullptr);
+    FotaRelayService no_bridge_relay(nullptr, someip_addressing::SERVICE_ID, someip_addressing::INSTANCE_ID);
     EXPECT_FALSE(no_bridge_relay.initialize());
 }
 

@@ -13,7 +13,7 @@ class IpcBridge;
 
 class RemoteCmdRelayService : public ISomeipService {
 public:
-    RemoteCmdRelayService(IpcBridge* bridge);
+    RemoteCmdRelayService(IpcBridge* bridge, uint16_t service_id, uint16_t instance_id);
     ~RemoteCmdRelayService() override;
     
     bool initialize() override;
@@ -39,6 +39,9 @@ private:
     
     std::atomic<bool> running_;
     std::thread worker_thread_;
+
+    uint16_t service_id_;
+    uint16_t instance_id_;
 };
 
 } // namespace someip

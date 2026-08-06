@@ -69,17 +69,19 @@ install(FILES ${CMAKE_SOURCE_DIR}/systemd/tbox-someip.service
     COMPONENT someip-runtime
 )
 
-# --- someip-runtime: 默认非秘密配置 ---
-# someip.yaml：daemon 服务开关/日志/IPC 桥接参数（无 VIN/SN/ECU UID 实例值、
-#   凭据、原始 payload 或生产车辆网络参数；协议常量 0x6101/0x0001/TCP 56101/
-#   SD UDP 30490 属非秘密协议配置，可保留）
-install(FILES ${CMAKE_SOURCE_DIR}/config/someip.yaml
+# --- someip-runtime: 默认非秘密配置（CR-007 §3/§6）---
+# someip.default.yaml -> /etc/tbox/conf.d/someip.yaml（RENAME）：
+#   量产默认模板，由 someip-runtime component 安装；BUILD 可选 overlay 覆盖。
+#   不含 VIN/SN/ECU UID 实例值、凭据、原始 payload 或生产车辆网络参数。
+install(FILES ${CMAKE_SOURCE_DIR}/config/someip.default.yaml
     DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/tbox/conf.d
+    RENAME someip.yaml
     COMPONENT someip-runtime
 )
-# someip.json：vsomeip runtime 非秘密配置（服务/路由/SD 参数，供真实
-#   vsomeip 模式加载；mock 模式不消费，随 someip-runtime 一并安装）
-install(FILES ${CMAKE_SOURCE_DIR}/config/someip.json
+# vsomeip.json：vsomeip runtime 非秘密配置（CR-007 §7：明确命名的独立中间件
+#   runtime 资产，供真实 vsomeip 模式加载；mock 模式不消费。寻址字段与
+#   someip.yaml 一致由 CI gate D 校验，不成为第二套无校验 SSOT）
+install(FILES ${CMAKE_SOURCE_DIR}/config/runtime/vsomeip.json
     DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/tbox/someip
     COMPONENT someip-runtime
 )

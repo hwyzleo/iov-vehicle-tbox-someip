@@ -47,7 +47,7 @@ sudo systemctl start tbox-someip
 
 ## 配置
 
-配置文件位于 `config/someip.json`。
+配置文件位于 `config/runtime/vsomeip.json`（vsomeip runtime）。
 
 ## 文档
 

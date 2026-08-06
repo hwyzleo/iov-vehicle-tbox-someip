@@ -110,3 +110,14 @@ add_executable(test_tsp_client_adapter unit/test_tsp_client_adapter.cpp
     ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
 configure_someip_test(test_tsp_client_adapter)
 add_test(NAME TspClientAdapterTests COMMAND test_tsp_client_adapter)
+
+# ============================================================
+# CR-007: 配置分层 / schema 校验测试
+# ============================================================
+# 配置加载默认值（方案 C：ServiceConfig 默认 = types.h Registry 基线）
+add_executable(test_config_load unit/test_config_load.cpp ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
+configure_someip_test(test_config_load)
+add_test(NAME ConfigLoadTests COMMAND test_config_load)
+
+# 配置校验正反例（CI gates A–E）
+add_test(NAME ConfigValidationTests COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_config_validation.sh)

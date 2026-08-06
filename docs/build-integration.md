@@ -31,8 +31,8 @@ SOMEIP 不维护独立 Orin toolchain、sysroot、容器或发布入口；正式
 | install component | `someip-runtime`（staging: rootfs，逻辑 prefix /usr） |
 | daemon 安装路径 | `${CMAKE_INSTALL_BINDIR}/tbox-someip`（→ /usr/bin/tbox-someip） |
 | systemd unit | `systemd/tbox-someip.service` → `${CMAKE_INSTALL_LIBDIR}/systemd/system` |
-| daemon 配置 | `config/someip.yaml` → `${CMAKE_INSTALL_SYSCONFDIR}/tbox/conf.d/someip.yaml` |
-| vsomeip 配置 | `config/someip.json` → `${CMAKE_INSTALL_SYSCONFDIR}/tbox/someip/someip.json` |
+| daemon 配置 | `config/someip.default.yaml` → `${CMAKE_INSTALL_SYSCONFDIR}/tbox/conf.d/someip.yaml` |
+| vsomeip 配置 | `config/runtime/vsomeip.json` → `${CMAKE_INSTALL_SYSCONFDIR}/tbox/someip/vsomeip.json` |
 | health check | `tests/smoke/someip-health.sh` |
 | smoke test | `tests/smoke/someip-sd-smoke.sh` |
 
@@ -111,7 +111,7 @@ out/<platform>/<profile>/install-root/
 ├── usr/bin/tbox-someip
 ├── usr/lib/systemd/system/tbox-someip.service
 └── etc/tbox/conf.d/someip.yaml
-    etc/tbox/someip/someip.json
+    etc/tbox/someip/vsomeip.json
 ```
 
 rootfs **不安装** HOST generator、测试 peer、fixture、源码、开发头文件、
@@ -131,4 +131,34 @@ rootfs **不安装** HOST generator、测试 peer、fixture、源码、开发头
 Service ID `0x6101`、Instance ID `0x0001`、TCP `56101`、SD UDP `30490`、
 Method `0x0001`（REPORT_SOFTWARE_INVENTORY）、Event `0x8001`
 （FOTA_COMMAND）为非秘密协议常量；网卡、unicast/multicast 地址与环境路由
-通过受控配置注入（config/someip.json `network.primary.name` 等为默认占位）。
+通过受控配置注入（config/runtime/vsomeip.json `network.primary.name` 等为默认占位）。
+
+## 9. 配置分层（CR-007）
+
+| 层 | 路径 | 用途 | 安装 |
+|---|---|---|---|
+| 本地调试 | `config/dev/common.yaml` + `config/dev/someip.yaml` | 开发/隔离 peer/单测 | 不安装 |
+| 量产默认 | `config/someip.default.yaml` | 服务默认模板 | someip-runtime -> /etc/tbox/conf.d/someip.yaml（RENAME） |
+| Schema | `config/schema/someip.schema.yaml` | strict 校验 | 不安装（CI 用） |
+| vsomeip runtime | `config/runtime/vsomeip.json` | vsomeip runtime 强制配置 | someip-runtime -> /etc/tbox/someip/vsomeip.json |
+| BUILD overlay | `configs/orin/rootfs/etc/tbox/conf.d/someip.yaml`（BUILD 仓库） | 可选覆盖 | overlay after install |
+
+runtime 加载顺序：`/etc/tbox/common.yaml` -> `/etc/tbox/conf.d/someip.yaml`。
+`config/dev/**` 不由 someip-runtime 安装，不进入 production rootfs/package。
+
+### 9.1 寻址 SSOT（方案 C）
+- 寻址（service/instance/port/SD/method/event）运行时 SSOT 为 `someip.yaml`，代码从 config 读取。
+- `types.h` 常量为 Registry 基线默认值 + CI 一致性校验锚点，config 缺失字段时 fallback。
+- `vsomeip.json` 寻址字段必须与 `someip.yaml` 一致（CI gate D 校验），不成为第二套无校验 SSOT。
+
+### 9.2 部署策略
+```
+/etc/tbox/common.yaml           = release-managed + replace
+/etc/tbox/conf.d/someip.yaml    = release-managed + replace
+/etc/tbox/someip/vsomeip.json   = release-managed + replace
+<device-network-provisioning>   = device-managed + preserve
+```
+
+### 9.3 CI 门禁
+`scripts/validate_config.py` + `tests/test_config_validation.sh` 实现 gate A–E：
+schema/未知键/有界/ID 一致性/禁止内容扫描/dev 差集。

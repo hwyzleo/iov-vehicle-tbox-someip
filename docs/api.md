@@ -53,7 +53,7 @@ TBOX-SOMEIP 是 TBOX 面向车内 SOME/IP 网络的唯一接入/适配门面服�
 
 ## 配置
 
-配置文件位于 `/etc/tbox-someip/someip.json`。
+配置文件位于 `/etc/tbox/someip/vsomeip.json`（vsomeip runtime；CR-007 §7）。
 
 ### 主要配置项
 - `network.primary.name`: 主网络接口

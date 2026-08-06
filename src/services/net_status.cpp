@@ -7,10 +7,12 @@
 namespace tbox {
 namespace someip {
 
-NetStatusService::NetStatusService(IpcBridge* bridge)
+NetStatusService::NetStatusService(IpcBridge* bridge, uint16_t service_id, uint16_t instance_id)
     : bridge_(bridge)
     , state_(ServiceState::UNAVAILABLE)
-    , running_(false) {}
+    , running_(false)
+    , service_id_(service_id)
+    , instance_id_(instance_id) {}
 
 NetStatusService::~NetStatusService() {
     stop();
@@ -138,11 +140,11 @@ ServiceState NetStatusService::getState() const {
 }
 
 uint16_t NetStatusService::getServiceId() const {
-    return someip_addressing::SERVICE_ID;
+    return service_id_;
 }
 
 uint16_t NetStatusService::getInstanceId() const {
-    return someip_addressing::INSTANCE_ID;
+    return instance_id_;
 }
 
 ErrorCode NetStatusService::getNetStatus(NetStatusData& status) {

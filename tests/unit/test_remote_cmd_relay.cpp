@@ -27,7 +27,7 @@ protected:
         auto mock_client = std::make_shared<MockTspClient>();
         bridge->registerClient("tsp", mock_client);
         
-        relay = std::make_unique<RemoteCmdRelayService>(bridge.get());
+        relay = std::make_unique<RemoteCmdRelayService>(bridge.get(), someip_addressing::SERVICE_ID, someip_addressing::INSTANCE_ID);
     }
     
     void TearDown() override {

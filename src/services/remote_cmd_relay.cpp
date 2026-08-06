@@ -7,10 +7,12 @@
 namespace tbox {
 namespace someip {
 
-RemoteCmdRelayService::RemoteCmdRelayService(IpcBridge* bridge)
+RemoteCmdRelayService::RemoteCmdRelayService(IpcBridge* bridge, uint16_t service_id, uint16_t instance_id)
     : bridge_(bridge)
     , state_(ServiceState::UNAVAILABLE)
-    , running_(false) {}
+    , running_(false)
+    , service_id_(service_id)
+    , instance_id_(instance_id) {}
 
 RemoteCmdRelayService::~RemoteCmdRelayService() {
     stop();
@@ -145,11 +147,11 @@ ServiceState RemoteCmdRelayService::getState() const {
 }
 
 uint16_t RemoteCmdRelayService::getServiceId() const {
-    return someip_addressing::SERVICE_ID;
+    return service_id_;
 }
 
 uint16_t RemoteCmdRelayService::getInstanceId() const {
-    return someip_addressing::INSTANCE_ID;
+    return instance_id_;
 }
 
 void RemoteCmdRelayService::subscribeRemoteCommands(RemoteCommandCallback callback) {

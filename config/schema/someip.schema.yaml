@@ -1,0 +1,93 @@
+# TBOX-SOMEIP strict schema（CR-007 §8）
+# 校验 someip.default.yaml / BUILD overlay / 最终 staging 配置。
+# 默认拒绝未知 production 键。校验脚本 scripts/validate_config.py 实现具体规则。
+#
+# CI 门禁（CR-007 §8）：
+#   A. someip.default.yaml               -> schema/pass
+#   B. BUILD overlay（若存在）            -> schema/pass
+#   C. final install-root config          -> source/hash/pass
+#   D. Registry vs config vs generated ID -> exact match
+#   E. systemd/metadata/smoke paths       -> exact match
+#   F. package                            -> secret/identity/network/test/HOST scan
+
+# ---- 允许的键结构（production 模式；未知键拒绝）----
+schema_version: 1
+
+allowed_keys:
+  someip:
+    config_version: { type: int, required: true, equals: 1 }
+    service:
+      service_id: { type: int, required: true, equals: 0x6101 }
+      instance_id: { type: int, required: true, equals: 0x0001 }
+      transport: { type: string, required: true, enum: [TCP] }
+      port: { type: int, required: true, equals: 56101 }
+    service_discovery:
+      protocol: { type: string, required: true, enum: [UDP] }
+      port: { type: int, required: true, equals: 30490 }
+      initial_delay_ms: { type: int, required: true, min: 0, max: 60000 }
+      repetition_base_delay_ms: { type: int, required: true, min: 0, max: 60000 }
+    members:
+      report_software_inventory:
+        type: { type: string, required: true, enum: [method] }
+        id: { type: int, required: true, equals: 0x0001, range: method }
+      fota_command:
+        type: { type: string, required: true, enum: [event] }
+        id: { type: int, required: true, equals: 0x8001, range: event }
+    bridge:
+      request_deadline_ms: { type: int, required: true, min: 100, max: 30000 }
+      queue_capacity: { type: int, required: true, min: 1, max: 4096 }
+      worker_count: { type: int, required: true, min: 1, max: 16 }
+    clients:
+      tsp:
+        socket_path: { type: string, required: true, pattern: "^/tmp/tbox-tsp\\.sock$" }
+        connect_timeout_ms: { type: int, required: true, min: 100, max: 30000 }
+      prov:
+        socket_path: { type: string, required: true, pattern: "^/tmp/tbox-prov\\.sock$" }
+        connect_timeout_ms: { type: int, required: true, min: 100, max: 30000 }
+    log:
+      level: { type: string, required: false, enum: [trace, debug, info, warn, error, INFO, DEBUG, WARN, ERROR] }
+      modules:
+        runtime: { type: string, required: false }
+        sd: { type: string, required: false }
+        method: { type: string, required: false }
+        event: { type: string, required: false }
+        ipc_bridge: { type: string, required: false }
+        serializer: { type: string, required: false }
+        fota_relay: { type: string, required: false }
+
+# ---- dev profile 额外允许的键（production 模式拒绝）----
+dev_only_keys:
+  - someip.enable_net_status
+  - someip.enable_remote_cmd_relay
+  - someip.enable_fota_relay
+
+# ---- 一致性基线（CR-007 §8 gate D：Registry vs config vs vsomeip.json vs types.h）----
+consistency_baseline:
+  service_id: 0x6101
+  instance_id: 0x0001
+  transport: TCP
+  port: 56101
+  sd_protocol: UDP
+  sd_port: 30490
+  method_report_software_inventory_id: 0x0001
+  event_fota_command_id: 0x8001
+
+# ---- production 禁止内容扫描（CR-007 §8 REQ-008）----
+forbidden_patterns:
+  - someip.ipc.socket_path
+  - /tmp/tbox-someip.sock
+  - identity_keys: [vin, device_sn, device-sn, ecu_uid, sn]
+  - secret_keys: [token, password, passwd, private_key, private-key, client_cert, root_ca, secret, credential]
+  - payload_keys: [raw_payload, fota_payload, someip_payload]
+  - mock_keys: [mock, fixture, bypass, test_peer, fake]
+  - host_build_paths: ["/usr/local", "/Users", "/home/", "../", "build/", "CMakeFiles"]
+
+# ---- Method/Event ID 范围（CR §3.2）----
+id_ranges:
+  method: { min: 0x0001, max: 0x7FFF }
+  event: { min: 0x8000, max: 0xFFFF }
+
+# ---- 网络参数 allowlist（CR-007 §8/§9：默认模板无生产实例；overlay 可注入 allowlist 内值）----
+network_allowlist:
+  interfaces: [eth0, lo]
+  multicast: [239.0.0.1]

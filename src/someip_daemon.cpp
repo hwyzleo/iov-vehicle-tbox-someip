@@ -149,8 +149,8 @@ bool SomeipDaemon::initialize(const ServiceConfig& config) {
         return false;
     }
 
-    // 初始化服务发现
-    service_discovery_ = std::make_unique<ServiceDiscovery>();
+    // 初始化服务发现（CR-007 方案 C：port 从 config 读取）
+    service_discovery_ = std::make_unique<ServiceDiscovery>(config_.port);
     if (!service_discovery_->initialize()) {
         SomeipLogAdapter::runtime().error("someip.runtime.sd_init_failed",
             "Failed to initialize service discovery"
@@ -285,9 +285,9 @@ bool SomeipDaemon::initializeIpcClients() {
 
     // TSP: FOTA 上行/下行链路走 tbox::tsp_client (CR-005)
     TspAdapterConfig tsp_cfg;
-    tsp_cfg.socket_path = config_.tsp_ipc_socket_path;
-    tsp_cfg.default_timeout_ms = config_.ipc_default_timeout_ms;
-    tsp_cfg.event_queue_size = config_.ipc_event_queue_size;
+    tsp_cfg.socket_path = config_.tsp.socket_path;
+    tsp_cfg.default_timeout_ms = config_.bridge_request_deadline_ms;
+    tsp_cfg.event_queue_size = config_.bridge_queue_capacity;
     auto tsp_adapter = std::make_shared<TspClientAdapter>(tsp_cfg);
     if (!tsp_adapter->initialize()) {
         // 非致命：后端 daemon 可能尚未就绪。门面常驻服务照常启动，
@@ -302,7 +302,8 @@ bool SomeipDaemon::initializeIpcClients() {
 
     // PROV: 配置/绑定只读链路走 tbox::prov_client (CR-006)
     ProvAdapterConfig prov_cfg;
-    prov_cfg.socket_path = config_.prov_ipc_socket_path;
+    prov_cfg.socket_path = config_.prov.socket_path;
+    prov_cfg.connect_timeout_ms = config_.prov.connect_timeout_ms;
     auto prov_adapter = std::make_shared<ProvClientAdapter>(prov_cfg);
     if (!prov_adapter->initialize()) {
         // 非致命：同 TSP，按需重连。
@@ -324,7 +325,7 @@ bool SomeipDaemon::initializeServices() {
 
     // 初始化 NetStatus 服务
     if (config_.enable_net_status) {
-        net_status_service_ = std::make_unique<NetStatusService>(ipc_bridge_.get());
+        net_status_service_ = std::make_unique<NetStatusService>(ipc_bridge_.get(), config_.service_id, config_.instance_id);
         if (!net_status_service_->initialize()) {
             SomeipLogAdapter::runtime().error("someip.runtime.service_init_failed",
                 "Failed to initialize NetStatus service",
@@ -336,7 +337,7 @@ bool SomeipDaemon::initializeServices() {
 
     // 初始化 RemoteCmdRelay 服务
     if (config_.enable_remote_cmd_relay) {
-        remote_cmd_relay_service_ = std::make_unique<RemoteCmdRelayService>(ipc_bridge_.get());
+        remote_cmd_relay_service_ = std::make_unique<RemoteCmdRelayService>(ipc_bridge_.get(), config_.service_id, config_.instance_id);
         if (!remote_cmd_relay_service_->initialize()) {
             SomeipLogAdapter::runtime().error("someip.runtime.service_init_failed",
                 "Failed to initialize RemoteCmdRelay service",
@@ -348,7 +349,7 @@ bool SomeipDaemon::initializeServices() {
 
     // 初始化 FotaRelay 服务
     if (config_.enable_fota_relay) {
-        fota_relay_service_ = std::make_unique<FotaRelayService>(ipc_bridge_.get());
+        fota_relay_service_ = std::make_unique<FotaRelayService>(ipc_bridge_.get(), config_.service_id, config_.instance_id);
         if (!fota_relay_service_->initialize()) {
             SomeipLogAdapter::runtime().error("someip.runtime.service_init_failed",
                 "Failed to initialize FotaRelay service",
@@ -377,8 +378,8 @@ bool SomeipDaemon::startServiceDiscovery() {
 
     // 统一 offer TBOX-SOMEIP 聚合服务
     bool offer_result = service_discovery_->offerService(
-        someip_addressing::SERVICE_ID,
-        someip_addressing::INSTANCE_ID);
+        config_.service_id,
+        config_.instance_id);
 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start_time).count();
@@ -386,8 +387,8 @@ bool SomeipDaemon::startServiceDiscovery() {
     if (!offer_result) {
         SomeipLogAdapter::sd().error("someip.sd.offer.failed",
             "Failed to offer TBOX-SOMEIP service",
-            {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(someip_addressing::SERVICE_ID)),
-             tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(someip_addressing::INSTANCE_ID)),
+            {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+             tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
              tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
              tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration)),
              tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
@@ -397,16 +398,17 @@ bool SomeipDaemon::startServiceDiscovery() {
 
     SomeipLogAdapter::sd().info("someip.sd.offer.succeeded",
         "TBOX-SOMEIP service offered successfully",
-        {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(someip_addressing::SERVICE_ID)),
-         tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(someip_addressing::INSTANCE_ID)),
+        {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+         tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
          tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
          tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration))}
     );
 
     // 注册 FOTA Software Inventory 上报处理器
     service_discovery_->registerMethodHandler(
-        method_ids::REPORT_SOFTWARE_INVENTORY,
+        config_.method_report_software_inventory_id,
         [this](const SomeIpMessage& request) -> SomeIpMessage {
+            const uint16_t kMethodId = config_.method_report_software_inventory_id;
             auto req_start_time = std::chrono::steady_clock::now();
 
             // 建立 SOME/IP Method 上下文
@@ -416,7 +418,7 @@ bool SomeipDaemon::startServiceDiscovery() {
             SomeipLogAdapter::method().debug("someip.method.request.received",
                 "Method request received",
                 {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(request.header.service_id)),
-                 tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(method_ids::REPORT_SOFTWARE_INVENTORY)),
+                 tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
                  tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(request.header.client_id)),
                  tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id))}
             );
@@ -445,7 +447,7 @@ bool SomeipDaemon::startServiceDiscovery() {
                     std::chrono::steady_clock::now() - req_start_time).count();
                 SomeipLogAdapter::method().info("someip.method.request.completed",
                     "Method request completed",
-                    {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(method_ids::REPORT_SOFTWARE_INVENTORY)),
+                    {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
                      tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
                      tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
                      tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(req_duration))}
@@ -472,7 +474,7 @@ bool SomeipDaemon::startServiceDiscovery() {
                     std::chrono::steady_clock::now() - req_start_time).count();
                 SomeipLogAdapter::method().info("someip.method.request.completed",
                     "Method request completed",
-                    {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(method_ids::REPORT_SOFTWARE_INVENTORY)),
+                    {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
                      tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
                      tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
                      tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(req_duration)),
@@ -531,7 +533,7 @@ bool SomeipDaemon::startServiceDiscovery() {
                 std::chrono::steady_clock::now() - req_start_time).count();
             SomeipLogAdapter::method().info("someip.method.request.completed",
                 "Method request completed",
-                {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(method_ids::REPORT_SOFTWARE_INVENTORY)),
+                {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
                  tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(request.header.client_id)),
                  tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
                  tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
@@ -543,8 +545,8 @@ bool SomeipDaemon::startServiceDiscovery() {
 
     // 订阅客户端连接事件
     service_discovery_->subscribeClientConnection(
-        someip_addressing::SERVICE_ID,
-        someip_addressing::INSTANCE_ID,
+        config_.service_id,
+        config_.instance_id,
         [this](const ClientConnectionEvent& event) {
             handleClientConnection(event);
         });
@@ -566,8 +568,8 @@ void SomeipDaemon::handleClientConnection(const ClientConnectionEvent& event) {
          tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result))}
     );
 
-    if (event.service_id == someip_addressing::SERVICE_ID &&
-        event.instance_id == someip_addressing::INSTANCE_ID) {
+    if (event.service_id == config_.service_id &&
+        event.instance_id == config_.instance_id) {
         SomeipLogAdapter::fota_relay().info("someip.fota.client.changed",
             "CGW-FOTA client subscription changed",
             {tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(event.client_id)),

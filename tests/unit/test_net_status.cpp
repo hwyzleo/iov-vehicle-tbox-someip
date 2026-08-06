@@ -31,7 +31,7 @@ protected:
         auto mock_client = std::make_shared<MockTspClient>();
         bridge->registerClient("tsp", mock_client);
         
-        net_status = std::make_unique<NetStatusService>(bridge.get());
+        net_status = std::make_unique<NetStatusService>(bridge.get(), someip_addressing::SERVICE_ID, someip_addressing::INSTANCE_ID);
     }
     
     void TearDown() override {

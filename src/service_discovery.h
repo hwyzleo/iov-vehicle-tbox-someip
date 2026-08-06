@@ -12,7 +12,7 @@ namespace someip {
 
 class ServiceDiscovery : public IServiceDiscovery {
 public:
-    ServiceDiscovery();
+    explicit ServiceDiscovery(uint16_t port);
     ~ServiceDiscovery() override;
     
     bool initialize() override;
@@ -46,6 +46,9 @@ private:
     
     // SOME/IP 服务
     std::unique_ptr<SomeIpService> someip_service_;
+
+    // 业务端口（CR-007 方案 C：从 config 读取，替代硬编码 56101）
+    uint16_t port_;
 };
 
 } // namespace someip

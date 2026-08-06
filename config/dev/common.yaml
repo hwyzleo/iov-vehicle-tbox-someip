@@ -1,5 +1,7 @@
-# TBOX 公共配置 - 部署到 /etc/tbox/common.yaml
-# 被 framework-config 的 ConfigManager::load("someip") 读取
+# TBOX-SOMEIP 本地调试公共配置（CR-007 §2/§5）
+# 仅用于本地开发、隔离 SOME/IP peer、单元/集成测试。
+# config/dev/** 不由 someip-runtime 安装，不进入 Orin production rootfs/package。
+# production /etc/tbox/common.yaml 由 BUILD 统一维护，SOMEIP 仓库不安装或覆盖。
 common:
   log:
     schema_version: 1

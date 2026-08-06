@@ -69,7 +69,6 @@ TEST_F(SomeipIntegrationTest, ServiceDiscoveryUnified) {
     // 验证统一 offer 0x6101/0x0001
     
     ServiceConfig config;
-    config.enable_sd = true;
     config.enable_net_status = false;
     config.enable_remote_cmd_relay = false;
     config.enable_fota_relay = false;

@@ -7,7 +7,9 @@
 namespace tbox {
 namespace someip {
 
-ServiceDiscovery::ServiceDiscovery() : initialized_(false) {}
+ServiceDiscovery::ServiceDiscovery(uint16_t port)
+    : initialized_(false)
+    , port_(port) {}
 
 ServiceDiscovery::~ServiceDiscovery() {
     shutdown();
@@ -62,7 +64,7 @@ bool ServiceDiscovery::offerService(uint16_t service_id, uint16_t instance_id) {
     config.service_id = service_id;
     config.instance_id = instance_id;
     config.ip_address = "0.0.0.0";
-    config.port = 56101; // 默认端口
+    config.port = port_;  // CR-007 方案 C：从 config 读取（基线 56101）
 
     // 初始化并启动 SOME/IP 服务
     if (!someip_service_->initialize(config)) {

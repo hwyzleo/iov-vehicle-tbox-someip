@@ -252,7 +252,7 @@ TEST_F(LogIntegrationTest, FotaRelayServiceIntegration) {
     auto mock_client = std::make_shared<MockTspClientForLog>();
     bridge_->registerClient("tsp", mock_client);
 
-    relay_ = std::make_unique<FotaRelayService>(bridge_.get());
+    relay_ = std::make_unique<FotaRelayService>(bridge_.get(), someip_addressing::SERVICE_ID, someip_addressing::INSTANCE_ID);
     ASSERT_TRUE(relay_->initialize());
     ASSERT_TRUE(relay_->start());
 

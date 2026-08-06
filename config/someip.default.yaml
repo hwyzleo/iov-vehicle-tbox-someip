@@ -1,0 +1,60 @@
+# TBOX-SOMEIP 量产默认模板（CR-007 §6）
+# 由 someip-runtime component 安装为逻辑目标 /etc/tbox/conf.d/someip.yaml
+# （CMake install RENAME，DESTDIR staging: out/<platform>/<profile>/install-root/etc/tbox/conf.d/someip.yaml）。
+# BUILD 可选 overlay（configs/orin/rootfs/etc/tbox/conf.d/someip.yaml）覆盖。
+# runtime 加载顺序：/etc/tbox/common.yaml -> /etc/tbox/conf.d/someip.yaml（CR-007 §5）。
+#
+# 约束（CR-007 §6/§8）：
+# - 只含代码实际消费的非秘密、安全默认值；有界参数已由代码/Registry 事实回填。
+# - 不含生产 IP/路由、车辆身份、秘密、payload 或 mock peer。
+# - SOMEIP 是 framework-ipc consumer/bridge，不提供 Server；不得出现 someip.ipc.socket_path
+#   或 /tmp/tbox-someip.sock。
+# - production schema 默认拒绝未知键；enable_* 等 dev/test 开关不在本模板（CR-007 §8 REQ-008）。
+someip:
+  config_version: 1
+
+  # 寻址（CR-007 方案 C：config 为运行时 SSOT，代码读取；值 = 整车 SOME/IP Service Registry 批准基线）
+  service:
+    service_id: 0x6101
+    instance_id: 0x0001
+    transport: TCP
+    port: 56101
+
+  service_discovery:
+    protocol: UDP
+    port: 30490
+    initial_delay_ms: 10
+    repetition_base_delay_ms: 200
+
+  members:
+    report_software_inventory:
+      type: method
+      id: 0x0001
+    fota_command:
+      type: event
+      id: 0x8001
+
+  bridge:
+    request_deadline_ms: 3000
+    queue_capacity: 256
+    worker_count: 1
+
+  clients:
+    tsp:
+      socket_path: /tmp/tbox-tsp.sock
+      connect_timeout_ms: 3000
+    prov:
+      socket_path: /tmp/tbox-prov.sock
+      connect_timeout_ms: 3000
+
+  # 服务级日志覆盖（framework 允许的服务级键）
+  log:
+    level: INFO
+    modules:
+      runtime: INFO
+      sd: INFO
+      method: INFO
+      event: INFO
+      ipc_bridge: INFO
+      serializer: INFO
+      fota_relay: INFO

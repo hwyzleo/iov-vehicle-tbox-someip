@@ -10,7 +10,9 @@
 namespace tbox {
 namespace someip {
 
-// 统一服务寻址（唯一 SSOT：整车 SOME/IP Service Registry）
+// 寻址基线默认值（CR-007 方案 C）：运行时 SSOT 为 someip.yaml（代码从 config 读取），
+// 此处常量作为 ServiceConfig 字段默认值 + CI 一致性校验锚点 + 测试便利。
+// 值 = 整车 SOME/IP Service Registry 批准基线，不经 CR 不得变更。
 namespace someip_addressing {
     constexpr uint16_t SERVICE_ID = 0x6101;
     constexpr uint16_t INSTANCE_ID = 0x0001;
@@ -18,13 +20,13 @@ namespace someip_addressing {
     constexpr uint16_t SD_PORT = 30490;
 }
 
-// Method ID（service-scoped，0x0001–0x7FFF）
+// Method ID（service-scoped，0x0001–0x7FFF）。基线默认值，运行时以 someip.yaml 为 SSOT。
 namespace method_ids {
     constexpr uint16_t REPORT_SOFTWARE_INVENTORY = 0x0001;  // FOTA 上行
     // 后续 CR 为 NetStatus/RemoteCmdRelay 分配
 } // namespace method_ids
 
-// Event ID（service-scoped，0x8000–0xFFFF）
+// Event ID（service-scoped，0x8000–0xFFFF）。基线默认值，运行时以 someip.yaml 为 SSOT。
 namespace event_ids {
     constexpr uint16_t FOTA_COMMAND = 0x8001;  // FOTA 下行（预留）
     // 后续 CR 为其他能力分配

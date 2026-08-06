@@ -26,6 +26,7 @@ namespace someip {
 /// PROV 适配器配置
 struct ProvAdapterConfig {
     std::string socket_path = "/tmp/tbox-prov.sock";
+    uint32_t connect_timeout_ms = 3000;
 };
 
 class ProvClientAdapter : public IProvClient {

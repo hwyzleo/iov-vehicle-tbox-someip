@@ -13,7 +13,7 @@ class IpcBridge;
 
 class FotaRelayService : public ISomeipService {
 public:
-    FotaRelayService(IpcBridge* bridge);
+    FotaRelayService(IpcBridge* bridge, uint16_t service_id, uint16_t instance_id);
     ~FotaRelayService() override;
     
     bool initialize() override;
@@ -42,6 +42,9 @@ private:
     
     std::atomic<bool> running_;
     std::thread worker_thread_;
+
+    uint16_t service_id_;
+    uint16_t instance_id_;
 };
 
 } // namespace someip
