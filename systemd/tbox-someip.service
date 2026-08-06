@@ -12,6 +12,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# vsomeip runtime 配置路径（CR-006 §11.4）：someip-runtime 随包安装到
+# /etc/tbox/someip/someip.json；未设置该环境变量时 vsomeip 只会查找
+# ./vsomeip.json 与 /etc/vsomeip/vsomeip.json，导致服务 0x6101 无法按
+# 56101/SD 30490 对外 Offer。显式指向受控配置。
+Environment=VSOMEIP_CONFIGURATION=/etc/tbox/someip/someip.json
 ExecStart=/usr/bin/tbox_someip
 Restart=on-failure
 RestartSec=5

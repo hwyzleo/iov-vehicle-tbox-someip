@@ -13,6 +13,14 @@
 #include <poll.h>
 #include <cstring>
 
+#ifndef USE_MOCK_SOMEIP
+// 真实 SOME/IP 后端（USE_MOCK_SOMEIP=OFF）：链接 vsomeip3 runtime。
+// 头文件仅在真实构建的 include path 上，故按开关条件包含。
+#include <vsomeip/vsomeip.hpp>
+#include <condition_variable>
+#include <chrono>
+#endif
+
 namespace {
 
 inline void writeU16BE(uint8_t* p, uint16_t v) {
@@ -409,11 +417,265 @@ std::unique_ptr<SomeIpService> createSomeIpService() {
 }
 
 #else
-// vsomeip 实现（需要实际的 vsomeip 库）
-// TODO: 实现真实的 vsomeip 集成
+// ============================================================
+// 真实 vsomeip3 实现（USE_MOCK_SOMEIP=OFF，Orin 正式构建）
+// CR-006 §11.3：链接 vsomeip3 / CommonAPI runtime，加载 someip.json
+// （由 VSOMEIP_CONFIGURATION 指向）。本类把统一门面服务 0x6101/0x0001
+// 经 vsomeip application 对外 Offer，并把收到的 SOME/IP 请求分发到已注册
+// 的 method handler，再把 handler 返回值作为 SOME/IP 响应回发。
+// ============================================================
+namespace {
+
+// application 名称必须与 someip.json 的 applications[].name / routing 一致。
+constexpr char kApplicationName[] = "tbox-someip";
+
+// SomeIpMessageType / SomeIpReturnCode 的枚举值与 SOME/IP 线格式字节一致，
+// 与 vsomeip 枚举同源，按字节值互转即可。
+inline vsomeip::message_type_e toVsomeipMessageType(SomeIpMessageType t) {
+    return static_cast<vsomeip::message_type_e>(static_cast<uint8_t>(t));
+}
+
+inline SomeIpMessageType fromVsomeipMessageType(vsomeip::message_type_e t) {
+    return static_cast<SomeIpMessageType>(static_cast<uint8_t>(t));
+}
+
+inline vsomeip::return_code_e toVsomeipReturnCode(SomeIpReturnCode c) {
+    return static_cast<vsomeip::return_code_e>(static_cast<uint8_t>(c));
+}
+
+} // namespace
+
+class SomeIpServiceReal : public SomeIpService {
+public:
+    SomeIpServiceReal() = default;
+    ~SomeIpServiceReal() override { stop(); }
+
+    bool initialize(const SomeIpServiceConfig& config) override {
+        if (running_) {
+            return false;
+        }
+        config_ = config;
+
+        runtime_ = vsomeip::runtime::get();
+        if (!runtime_) {
+            SomeipLogAdapter::runtime().error("someip.runtime.vsomeip_runtime_null",
+                "vsomeip runtime unavailable",
+                {tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
+            );
+            return false;
+        }
+
+        // application 名称必须与 someip.json 的 applications[].name / routing 一致
+        app_ = runtime_->create_application(kApplicationName);
+        if (!app_) {
+            SomeipLogAdapter::runtime().error("someip.runtime.create_application_failed",
+                "vsomeip create_application() failed",
+                {tbox::fw::log::Field("app_name", tbox::fw::log::FieldValue::makeString(std::string(kApplicationName))),
+                 tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
+            );
+            return false;
+        }
+
+        // init() 加载 VSOMEIP_CONFIGURATION 指向的 someip.json 并初始化路由组件
+        if (!app_->init()) {
+            SomeipLogAdapter::runtime().error("someip.runtime.app_init_failed",
+                "vsomeip application init() failed (check VSOMEIP_CONFIGURATION / someip.json)",
+                {tbox::fw::log::Field("app_name", tbox::fw::log::FieldValue::makeString(std::string(kApplicationName))),
+                 tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
+            );
+            app_.reset();
+            return false;
+        }
+
+        // 状态回调：ST_REGISTERED 表示已在路由组件登记，可 Offer。
+        app_->register_state_handler(
+            [this](vsomeip::state_type_e _state) {
+                const bool registered = (_state == vsomeip::state_type_e::ST_REGISTERED);
+                {
+                    std::lock_guard<std::mutex> lk(state_mutex_);
+                    registered_ = registered;
+                }
+                state_cv_.notify_all();
+                SomeipLogAdapter::sd().info("someip.sd.state_changed",
+                    registered ? "vsomeip application registered"
+                               : "vsomeip application deregistered",
+                    {tbox::fw::log::Field("result",
+                        tbox::fw::log::FieldValue::makeString(registered ? "registered" : "deregistered"))}
+                );
+                // 已请求 Offer 时，登记完成后（重新）Offer，覆盖路由重启场景。
+                if (registered && offering_ && app_) {
+                    app_->offer_service(config_.service_id, config_.instance_id,
+                                        config_.major_version, config_.minor_version);
+                }
+            });
+
+        // 消息处理器：本服务实例下所有 method 的统一入口。
+        app_->register_message_handler(
+            config_.service_id, config_.instance_id, vsomeip::ANY_METHOD,
+            [this](const std::shared_ptr<vsomeip::message>& _request) {
+                onMessage(_request);
+            });
+
+        initialized_ = true;
+        return true;
+    }
+
+    bool start() override {
+        if (!initialized_ || running_) {
+            return false;
+        }
+        running_ = true;
+
+        // app_->start() 阻塞运行 I/O 处理循环，必须放独立线程。
+        io_thread_ = std::thread([this]() {
+            app_->start();
+        });
+
+        // best-effort 等待在路由组件登记完成；超时不阻断启动（延迟 Offer 语义）。
+        {
+            std::unique_lock<std::mutex> lk(state_mutex_);
+            state_cv_.wait_for(lk, std::chrono::seconds(5),
+                               [this]() { return registered_.load(); });
+        }
+        return true;
+    }
+
+    void stop() override {
+        offering_ = false;
+        const bool was_running = running_.exchange(false);
+        if (app_) {
+            app_->clear_all_handler();
+            if (was_running) {
+                app_->stop();
+            }
+        }
+        if (io_thread_.joinable()) {
+            io_thread_.join();
+        }
+        app_.reset();
+        initialized_ = false;
+        registered_ = false;
+    }
+
+    bool isRunning() const override {
+        return running_;
+    }
+
+    void registerMethodHandler(MethodId method_id, SomeIpRequestHandler handler) override {
+        std::lock_guard<std::mutex> lk(handlers_mutex_);
+        method_handlers_[method_id] = std::move(handler);
+    }
+
+    void registerEventHandler(EventId event_id, SomeIpNotificationHandler handler) override {
+        std::lock_guard<std::mutex> lk(handlers_mutex_);
+        event_handlers_[event_id] = std::move(handler);
+    }
+
+    bool offerService() override {
+        if (!initialized_ || !app_) {
+            return false;
+        }
+        offering_ = true;
+        app_->offer_service(config_.service_id, config_.instance_id,
+                            config_.major_version, config_.minor_version);
+        return true;
+    }
+
+    void stopOfferService() override {
+        offering_ = false;
+        if (app_) {
+            app_->stop_offer_service(config_.service_id, config_.instance_id,
+                                     config_.major_version, config_.minor_version);
+        }
+    }
+
+    ServiceId getServiceId() const override { return config_.service_id; }
+    uint16_t getInstanceId() const override { return config_.instance_id; }
+    uint16_t getBoundPort() const override { return config_.port; }
+
+private:
+    void onMessage(const std::shared_ptr<vsomeip::message>& _request) {
+        if (!_request) {
+            return;
+        }
+
+        // 反序列化：vsomeip::message -> SomeIpMessage
+        SomeIpMessage request;
+        request.header.service_id = _request->get_service();
+        request.header.method_id = _request->get_method();
+        request.header.client_id = _request->get_client();
+        request.header.session_id = _request->get_session();
+        request.header.protocol_version = _request->get_protocol_version();
+        request.header.interface_version = _request->get_interface_version();
+        request.header.message_type = fromVsomeipMessageType(_request->get_message_type());
+
+        auto in_payload = _request->get_payload();
+        if (in_payload && in_payload->get_length() > 0) {
+            const vsomeip::byte_t* data = in_payload->get_data();
+            request.payload.assign(data, data + in_payload->get_length());
+        }
+
+        // 查找 method handler（可能在 offer 之后注册，查表加锁即可）。
+        SomeIpRequestHandler handler;
+        {
+            std::lock_guard<std::mutex> lk(handlers_mutex_);
+            auto it = method_handlers_.find(request.header.method_id);
+            if (it != method_handlers_.end()) {
+                handler = it->second;
+            }
+        }
+
+        SomeIpMessage response;
+        if (handler) {
+            response = handler(request);
+        } else {
+            response.header.service_id = request.header.service_id;
+            response.header.method_id = request.header.method_id;
+            response.header.message_type = SomeIpMessageType::RESPONSE;
+            response.header.return_code = SomeIpReturnCode::E_UNKNOWN_METHOD;
+            SomeipLogAdapter::method().warn("someip.method.no_handler",
+                "No handler registered for method",
+                {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(request.header.service_id)),
+                 tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(request.header.method_id))}
+            );
+        }
+
+        // REQUEST_NO_RETURN（fire-and-forget）不回响应。
+        if (request.header.message_type == SomeIpMessageType::REQUEST_NO_RETURN) {
+            return;
+        }
+
+        // 序列化响应：SomeIpMessage -> vsomeip::message（保留 request/session 关联）。
+        auto vs_response = runtime_->create_response(_request);
+        vs_response->set_return_code(toVsomeipReturnCode(response.header.return_code));
+        if (!response.payload.empty()) {
+            auto pl = runtime_->create_payload();
+            pl->set_data(response.payload);
+            vs_response->set_payload(pl);
+        }
+        app_->send(vs_response);
+    }
+
+    SomeIpServiceConfig config_;
+    std::shared_ptr<vsomeip::runtime> runtime_;
+    std::shared_ptr<vsomeip::application> app_;
+    std::thread io_thread_;
+
+    std::atomic<bool> initialized_{false};
+    std::atomic<bool> running_{false};
+    std::atomic<bool> offering_{false};
+    std::atomic<bool> registered_{false};
+
+    std::mutex state_mutex_;
+    std::condition_variable state_cv_;
+
+    std::mutex handlers_mutex_;
+    std::unordered_map<MethodId, SomeIpRequestHandler> method_handlers_;
+    std::unordered_map<EventId, SomeIpNotificationHandler> event_handlers_;
+};
+
 std::unique_ptr<SomeIpService> createSomeIpService() {
-    // 临时返回 nullptr，需要实现真实的 vsomeip 集成
-    return nullptr;
+    return std::make_unique<SomeIpServiceReal>();
 }
 #endif
 
