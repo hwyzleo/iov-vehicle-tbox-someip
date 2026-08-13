@@ -13,9 +13,11 @@ set(SOURCES
     someip_context.cpp
     services/net_status.cpp
     services/remote_cmd_relay.cpp
-    services/fota_relay.cpp
+    services/vehicle_message_gateway.cpp
     bridge/tsp_client_adapter.cpp
     bridge/prov_client_adapter.cpp
+    bridge/vehicle_message_validator.cpp
+    bridge/generic_message_bridge.cpp
 )
 
 # 创建可执行文件
@@ -45,6 +47,11 @@ endif()
 
 # TBOX framework 组件（config/log/ipc）
 target_link_libraries(tbox_someip PRIVATE pthread ${SOMEIP_FRAMEWORK_LIBS})
+
+# CR-008 通用车云消息：protobuf 生成的 Envelope 代码（HOST 生成，TARGET runtime）
+if(TARGET someip_proto)
+    target_link_libraries(tbox_someip PRIVATE someip_proto)
+endif()
 
 # framework-ipc 域 client facade（TSP/PROV adapter 始终链接）
 target_include_directories(tbox_someip PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)

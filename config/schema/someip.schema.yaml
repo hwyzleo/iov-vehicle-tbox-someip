@@ -1,4 +1,4 @@
-# TBOX-SOMEIP strict schema（CR-007 §8）
+# TBOX-SOMEIP strict schema（CR-007 §8 / CR-008）
 # 校验 someip.default.yaml / BUILD overlay / 最终 staging 配置。
 # 默认拒绝未知 production 键。校验脚本 scripts/validate_config.py 实现具体规则。
 #
@@ -9,6 +9,12 @@
 #   D. Registry vs config vs generated ID -> exact match
 #   E. systemd/metadata/smoke paths       -> exact match
 #   F. package                            -> secret/identity/network/test/HOST scan
+#
+# CR-008：
+#   - 旧 report_software_inventory(0x0001)/fota_command(0x8001) reserved，不得出现/注册。
+#   - 通用成员精确 ID 由 Registry 分配；production 默认缺省 id（待分配），
+#     dev/test 允许 test-only ID；任何配置不得使用 reserved 0x0001/0x8001。
+#   - generic_message.allowed_services 首期 [vehicle.fota]；禁止 vehicle.ota 别名。
 
 # ---- 允许的键结构（production 模式；未知键拒绝）----
 schema_version: 1
@@ -27,12 +33,23 @@ allowed_keys:
       initial_delay_ms: { type: int, required: true, min: 0, max: 60000 }
       repetition_base_delay_ms: { type: int, required: true, min: 0, max: 60000 }
     members:
-      report_software_inventory:
+      vehicle_message_exchange:
         type: { type: string, required: true, enum: [method] }
-        id: { type: int, required: true, equals: 0x0001, range: method }
-      fota_command:
+        id: { type: int, required: false, range: method, not_in: [0x0001] }
+        interface_major: { type: int, required: false, min: 1, max: 255 }
+      vehicle_message_downlink:
         type: { type: string, required: true, enum: [event] }
-        id: { type: int, required: true, equals: 0x8001, range: event }
+        id: { type: int, required: false, range: event, not_in: [0x8001] }
+        eventgroup_id: { type: int, required: false, min: 0, max: 65535 }
+    generic_message:
+      allowed_services: { type: list, required: true, items: [vehicle.fota], no_vehicle_ota: true }
+      allowed_protocol_majors: { type: list, required: true, items: [1] }
+      max_envelope_bytes: { type: int, required: true, min: 1, max: 1048576 }
+      max_payload_bytes: { type: int, required: true, min: 1, max: 1048576 }
+      max_in_flight: { type: int, required: true, min: 1, max: 1024 }
+      downlink_queue_capacity: { type: int, required: true, min: 1, max: 65536 }
+      worker_count: { type: int, required: true, min: 1, max: 16 }
+      tsp_timeout_ms: { type: int, required: true, min: 100, max: 30000 }
     bridge:
       request_deadline_ms: { type: int, required: true, min: 100, max: 30000 }
       queue_capacity: { type: int, required: true, min: 1, max: 4096 }
@@ -53,15 +70,17 @@ allowed_keys:
         event: { type: string, required: false }
         ipc_bridge: { type: string, required: false }
         serializer: { type: string, required: false }
-        fota_relay: { type: string, required: false }
+        vehicle_message: { type: string, required: false }
 
 # ---- dev profile 额外允许的键（production 模式拒绝）----
 dev_only_keys:
   - someip.enable_net_status
   - someip.enable_remote_cmd_relay
-  - someip.enable_fota_relay
+  - someip.enable_vehicle_message_gateway
 
 # ---- 一致性基线（CR-007 §8 gate D：Registry vs config vs vsomeip.json vs types.h）----
+# CR-008：旧 0x0001/0x8001 已删除并 reserved；新通用成员 ID 由 Registry 分配
+# 后回填（pending），此基线不含未批准数值。
 consistency_baseline:
   service_id: 0x6101
   instance_id: 0x0001
@@ -69,10 +88,18 @@ consistency_baseline:
   port: 56101
   sd_protocol: UDP
   sd_port: 30490
-  method_report_software_inventory_id: 0x0001
-  event_fota_command_id: 0x8001
 
-# ---- production 禁止内容扫描（CR-007 §8 REQ-008）----
+# ---- CR-008 reserved：旧 FOTA 成员 ID 永久保留，不得注册/复用 ----
+reserved_ids:
+  method: [0x0001]
+  event: [0x8001]
+reserved_member_names:
+  - report_software_inventory
+  - fota_command
+forbidden_services:
+  - vehicle.ota
+
+# ---- production 禁止内容扫描（CR-007 §8 REQ-008 / CR-008）----
 forbidden_patterns:
   - someip.ipc.socket_path
   - /tmp/tbox-someip.sock
@@ -81,6 +108,8 @@ forbidden_patterns:
   - payload_keys: [raw_payload, fota_payload, someip_payload]
   - mock_keys: [mock, fixture, bypass, test_peer, fake]
   - host_build_paths: ["/usr/local", "/Users", "/home/", "../", "build/", "CMakeFiles"]
+  - legacy_member_keys: [report_software_inventory, fota_command]
+  - legacy_service_tokens: ["vehicle.ota", "vehicle.ota.v1", "payload_bytes", "reportSoftwareInventory", "onFotaCommand"]
 
 # ---- Method/Event ID 范围（CR §3.2）----
 id_ranges:

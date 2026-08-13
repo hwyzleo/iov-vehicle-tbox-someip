@@ -33,8 +33,21 @@ TEST_F(LogEventsTest, EventNameFormat) {
     EXPECT_TRUE(std::regex_match("someip.ipc.call.failed", event_pattern));
     EXPECT_TRUE(std::regex_match("someip.mapping.failed", event_pattern));
     EXPECT_TRUE(std::regex_match("someip.event.published", event_pattern));
-    EXPECT_TRUE(std::regex_match("someip.fota.inventory.relayed", event_pattern));
-    EXPECT_TRUE(std::regex_match("someip.fota.command.relayed", event_pattern));
+    // CR-008 通用车云消息事件（取代旧 someip.fota.*）
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.request.received", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.request.completed", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.request.rejected", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.tsp.accepted", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.tsp.rejected", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.tsp.unknown", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.downlink.received", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.downlink.forwarded", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.downlink.dropped", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.ttl_expired", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.payload_too_large", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.correlation_mismatch", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.queue_full", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.vehicle_message.version_mismatch", event_pattern));
 }
 
 TEST_F(LogEventsTest, LoggerMethodsExist) {
@@ -45,7 +58,7 @@ TEST_F(LogEventsTest, LoggerMethodsExist) {
     auto event_logger = SomeipLogAdapter::event();
     auto ipc_bridge_logger = SomeipLogAdapter::ipc_bridge();
     auto serializer_logger = SomeipLogAdapter::serializer();
-    auto fota_relay_logger = SomeipLogAdapter::fota_relay();
+    auto vehicle_message_logger = SomeipLogAdapter::vehicle_message();
 
     // 调用日志方法（不崩溃即通过）
     runtime_logger.info("someip.test.event", "test message");
@@ -54,7 +67,7 @@ TEST_F(LogEventsTest, LoggerMethodsExist) {
     event_logger.info("someip.test.event", "test message");
     ipc_bridge_logger.info("someip.test.event", "test message");
     serializer_logger.info("someip.test.event", "test message");
-    fota_relay_logger.info("someip.test.event", "test message");
+    vehicle_message_logger.info("someip.test.event", "test message");
 }
 
 TEST_F(LogEventsTest, ContextPropagationWorks) {
@@ -91,7 +104,7 @@ TEST_F(LogEventsTest, FieldTypesWork) {
 
 TEST_F(LogEventsTest, SensitivityLevelsWork) {
     // 验证不同敏感度级别的字段
-    SomeipLogAdapter::fota_relay().info("someip.test.event",
+    SomeipLogAdapter::vehicle_message().info("someip.test.event",
         "Test sensitivity levels",
         {tbox::fw::log::Field("normal_field",
              tbox::fw::log::FieldValue::makeString("normal"),
@@ -140,29 +153,23 @@ TEST_F(LogEventsTest, SomeipIdFields) {
     );
 }
 
-TEST_F(LogEventsTest, FotaEventFields) {
-    // 验证 FOTA 事件字段（VIN 按 Identifier 脱敏）
-    std::string test_vin = "LSVAU2180N2123456";
-
-    SomeipLogAdapter::fota_relay().info("someip.fota.inventory.relayed",
-        "Test FOTA inventory relay",
-        {tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
-         tbox::fw::log::Field("entry_count", tbox::fw::log::FieldValue::makeInt(3)),
-         tbox::fw::log::Field("snapshot_seq", tbox::fw::log::FieldValue::makeInt(1)),
-         tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(test_vin),
-             tbox::fw::log::Sensitivity::Identifier),
-         tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
-         tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(52))}
+TEST_F(LogEventsTest, VehicleMessageEventFields) {
+    // 验证通用车云消息事件字段（仅 service/payloadType/长度/outcome 摘要，
+    // 不记录完整 Envelope/payload/VIN/凭据——CR-008 §日志与指标）
+    SomeipLogAdapter::vehicle_message().info("someip.vehicle_message.request.received",
+        "Test vehicle message request",
+        {tbox::fw::log::Field("service", tbox::fw::log::FieldValue::makeString("vehicle.fota")),
+         tbox::fw::log::Field("payload_type", tbox::fw::log::FieldValue::makeString("vehicle.fota.v1.CheckTask")),
+         tbox::fw::log::Field("message_id", tbox::fw::log::FieldValue::makeString("msg-001")),
+         tbox::fw::log::Field("envelope_length", tbox::fw::log::FieldValue::makeInt(256)),
+         tbox::fw::log::Field("outcome", tbox::fw::log::FieldValue::makeString("accepted"))}
     );
 
-    SomeipLogAdapter::fota_relay().info("someip.fota.command.relayed",
-        "Test FOTA command relay",
+    SomeipLogAdapter::vehicle_message().info("someip.vehicle_message.downlink.forwarded",
+        "Test vehicle message downlink",
         {tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("down")),
-         tbox::fw::log::Field("command_id", tbox::fw::log::FieldValue::makeString("cmd-001")),
-         tbox::fw::log::Field("payload_length", tbox::fw::log::FieldValue::makeInt(128),
-             tbox::fw::log::Sensitivity::Payload),
-         tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
-         tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(30))}
+         tbox::fw::log::Field("message_id", tbox::fw::log::FieldValue::makeString("msg-002")),
+         tbox::fw::log::Field("envelope_length", tbox::fw::log::FieldValue::makeInt(128))}
     );
 }
 
@@ -171,7 +178,7 @@ TEST_F(LogEventsTest, IpcCallFailedEvent) {
     SomeipLogAdapter::ipc_bridge().error("someip.ipc.call.failed",
         "Test IPC call failed",
         {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
-         tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("report_software_inventory")),
+         tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("exchange_vehicle_message")),
          tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
          tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(5000)),
          tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1002"))}

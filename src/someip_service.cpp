@@ -1,6 +1,7 @@
 #include "tbox_someip/someip_service.h"
 #include "tbox_someip/someip_log_adapter.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <mutex>
 #include <atomic>
 #include <thread>
@@ -317,9 +318,12 @@ public:
 
                     uint8_t respBuf[16];
                     serializeHeader(respBuf, respHdr);
-                    if (!writeAll(client_fd_, respBuf, 16)) break;
-                    if (!response.payload.empty()) {
-                        if (!writeAll(client_fd_, response.payload.data(), response.payload.size())) break;
+                    {
+                        std::lock_guard<std::mutex> wl(write_mutex_);
+                        if (!writeAll(client_fd_, respBuf, 16)) break;
+                        if (!response.payload.empty()) {
+                            if (!writeAll(client_fd_, response.payload.data(), response.payload.size())) break;
+                        }
                     }
                 }
 
@@ -369,6 +373,41 @@ public:
         event_handlers_[event_id] = std::move(handler);
     }
 
+    bool notifyEvent(EventId event_id, const SomeIpMessage& notification) override {
+        if (!running_ || client_fd_ < 0) {
+            return false;
+        }
+        // 事件通知（message_type=NOTIFICATION），在 listener 线程之外（bridge
+        // worker）发布，写帧加锁避免与响应写交织。
+        SomeIpHeader hdr{};
+        hdr.service_id = config_.service_id;
+        hdr.method_id = event_id;   // Event 承载在 method_id 字段
+        hdr.length = static_cast<uint32_t>(8 + notification.payload.size());
+        hdr.protocol_version = 0x01;
+        hdr.interface_version = 0x01;
+        hdr.message_type = SomeIpMessageType::NOTIFICATION;
+        hdr.return_code = SomeIpReturnCode::E_OK;
+
+        uint8_t buf[16];
+        serializeHeader(buf, hdr);
+
+        std::lock_guard<std::mutex> lock(write_mutex_);
+        if (!writeAll(client_fd_, buf, 16)) return false;
+        if (!notification.payload.empty()) {
+            if (!writeAll(client_fd_, notification.payload.data(), notification.payload.size())) {
+                return false;
+            }
+        }
+        SomeipLogAdapter::event().info("someip.event.published",
+            "MockSomeIP event notification sent",
+            {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+             tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(event_id)),
+             tbox::fw::log::Field("payload_length", tbox::fw::log::FieldValue::makeInt(
+                 static_cast<int64_t>(notification.payload.size())))}
+        );
+        return true;
+    }
+
     bool offerService() override {
         if (!running_ || !initialized_) {
             return false;
@@ -410,6 +449,7 @@ private:
     std::atomic<bool> stop_requested_{false};
     std::string bound_address_;
     uint16_t bound_port_{0};
+    std::mutex write_mutex_;   // 串行化响应写与事件通知写
 };
 
 std::unique_ptr<SomeIpService> createSomeIpService() {
@@ -571,6 +611,33 @@ public:
         event_handlers_[event_id] = std::move(handler);
     }
 
+    bool notifyEvent(EventId event_id, const SomeIpMessage& notification) override {
+        if (!app_ || !initialized_ || !registered_ || !offering_) {
+            return false;
+        }
+        // 首次通知前登记并 offer 事件（eventgroup 由 Registry 分配，运行时从
+        // someip.yaml 读取）。精确 eventgroup/事件语义需 Orin 端到端验证。
+        {
+            std::lock_guard<std::mutex> lk(handlers_mutex_);
+            if (events_offered_.find(event_id) == events_offered_.end()) {
+                app_->offer_event(config_.service_id, config_.instance_id, event_id,
+                                  {config_.eventgroup_id}, vsomeip::event_type_e::ET_EVENT);
+                events_offered_.insert(event_id);
+            }
+        }
+        auto pl = runtime_->create_payload();
+        pl->set_data(notification.payload);
+        app_->notify(config_.service_id, config_.instance_id, event_id, pl);
+        SomeipLogAdapter::event().info("someip.event.published",
+            "vsomeip event notification sent",
+            {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+             tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(event_id)),
+             tbox::fw::log::Field("payload_length", tbox::fw::log::FieldValue::makeInt(
+                 static_cast<int64_t>(notification.payload.size())))}
+        );
+        return true;
+    }
+
     bool offerService() override {
         if (!initialized_ || !app_) {
             return false;
@@ -672,6 +739,7 @@ private:
     std::mutex handlers_mutex_;
     std::unordered_map<MethodId, SomeIpRequestHandler> method_handlers_;
     std::unordered_map<EventId, SomeIpNotificationHandler> event_handlers_;
+    std::unordered_set<EventId> events_offered_;   // 已 offer 的事件
 };
 
 std::unique_ptr<SomeIpService> createSomeIpService() {

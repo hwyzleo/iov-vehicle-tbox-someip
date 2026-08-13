@@ -1,10 +1,10 @@
 #!/bin/bash
-# SOME/IP-SD / FOTA 桥接最小 smoke test for tbox-someip service.
+# SOME/IP-SD / 通用车云消息桥接最小 smoke test for tbox-someip service.
 # Exit 0 = pass, non-zero = fail.
 #
-# TBOX-SOMEIP-DSN-CR-006 §11.7: Orin 最小桥接验证入口（本地生命周期 + 配置
-# 安全检查 + TCP 56101 端点 + SD UDP 30490 探测）。完整 SD/Method/Event、
-# FOTA 上下行、PROV client 与异常恢复由受控 Orin 集成用例承担；本脚本使用
+# TBOX-SOMEIP-DSN-CR-006 §11.7 / CR-008: Orin 最小桥接验证入口（本地生命周期 + 配置
+# 安全检查 + TCP 56101 端点 + SD UDP 30490 探测）。完整 SD/Method/Event、通用
+# VehicleMessage 上下行、PROV client 与异常恢复由受控 Orin 集成用例承担；本脚本使用
 # 隔离 peer/测试数据，不连接生产 Broker、不使用真实车辆身份或业务数据。
 
 set -euo pipefail

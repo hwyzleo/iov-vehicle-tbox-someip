@@ -1,13 +1,17 @@
-# TBOX-SOMEIP 本地调试服务配置（CR-007 §2/§5）
+# TBOX-SOMEIP 本地调试服务配置（CR-007 §2/§5 / CR-008）
 # 仅用于本地开发/测试。config/dev/** 不进入 someip-runtime install / production package。
 # 本地调试通过显式 dev profile 指向 config/dev/**（见 CR-007 §5 Runtime 加载）。
+#
+# CR-008：旧 report_software_inventory(0x0001)/fota_command(0x8001) 已删除并
+# reserved，不得复用。通用成员 test-only ID（0x0002/0x8002）仅用于本地 mock/
+# 单测/集成，非量产；Registry 分配前不得进入 production 配置。
 someip:
   config_version: 1
 
   # 服务开关（仅 dev profile 使用；production schema 拒绝这些键，CR-007 §8 REQ-008）
   enable_net_status: true
   enable_remote_cmd_relay: true
-  enable_fota_relay: true
+  enable_vehicle_message_gateway: true
 
   # 寻址（CR-007 方案 C：config 为运行时 SSOT，代码读取；types.h 为基线默认值）
   service:
@@ -22,13 +26,27 @@ someip:
     initial_delay_ms: 10
     repetition_base_delay_ms: 200
 
+  # 通用车云消息成员（CR-008）：TEST-ONLY ID，非量产。
   members:
-    report_software_inventory:
+    vehicle_message_exchange:
       type: method
-      id: 0x0001
-    fota_command:
+      id: 0x0002     # TEST-ONLY；Registry 分配前本地 mock/单测使用
+      interface_major: 1
+    vehicle_message_downlink:
       type: event
-      id: 0x8001
+      id: 0x8002     # TEST-ONLY
+      eventgroup_id: 1
+
+  # 通用车云消息限制（CR-008）
+  generic_message:
+    allowed_services: [vehicle.fota]
+    allowed_protocol_majors: [1]
+    max_envelope_bytes: 16384
+    max_payload_bytes: 8192
+    max_in_flight: 64
+    downlink_queue_capacity: 256
+    worker_count: 1
+    tsp_timeout_ms: 2500        # 须 < bridge.request_deadline_ms
 
   bridge:
     request_deadline_ms: 3000
@@ -53,4 +71,4 @@ someip:
       event: DEBUG
       ipc_bridge: INFO
       serializer: INFO
-      fota_relay: INFO
+      vehicle_message: INFO

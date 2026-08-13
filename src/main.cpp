@@ -6,6 +6,7 @@
 #include <iostream>
 #include <csignal>
 #include <atomic>
+#include <string>
 #include <unistd.h>
 
 std::atomic<bool> g_shutdown_requested(false);
@@ -117,14 +118,63 @@ int main(int argc, char* argv[]) {
     config.sd_initial_delay_ms = static_cast<uint32_t>(cfg->getInt("someip.service_discovery.initial_delay_ms", config.sd_initial_delay_ms));
     config.sd_repetition_base_delay_ms = static_cast<uint32_t>(cfg->getInt("someip.service_discovery.repetition_base_delay_ms", config.sd_repetition_base_delay_ms));
 
-    // 成员 ID（Method/Event）
-    config.method_report_software_inventory_id = static_cast<uint16_t>(cfg->getInt("someip.members.report_software_inventory.id", config.method_report_software_inventory_id));
-    config.event_fota_command_id = static_cast<uint16_t>(cfg->getInt("someip.members.fota_command.id", config.event_fota_command_id));
+    // 通用车云消息成员（CR-008）：精确 ID 由 Registry 分配（US-011）；
+    // someip.yaml 未配置（<registry-assigned> 待回填）时不注册，保持 nullopt。
+    if (cfg->has("someip.members.vehicle_message_exchange.id")) {
+        config.method_exchange_vehicle_message_id = static_cast<uint16_t>(
+            cfg->getInt("someip.members.vehicle_message_exchange.id", 0));
+    }
+    if (cfg->has("someip.members.vehicle_message_downlink.id")) {
+        config.event_vehicle_message_id = static_cast<uint16_t>(
+            cfg->getInt("someip.members.vehicle_message_downlink.id", 0));
+    }
+    config.eventgroup_id = static_cast<uint32_t>(
+        cfg->getInt("someip.members.vehicle_message_downlink.eventgroup_id", config.eventgroup_id));
+    config.interface_major = static_cast<uint32_t>(
+        cfg->getInt("someip.members.vehicle_message_exchange.interface_major", config.interface_major));
 
-    // 桥接（CR-005/CR-006/CR-007）
+    // 通用车云消息限制（generic_message.*）
+    auto allowed_services = cfg->getStringList("someip.generic_message.allowed_services");
+    if (!allowed_services.empty()) {
+        config.generic_message.limits.allowed_services = std::move(allowed_services);
+    }
+    auto allowed_majors_str = cfg->getStringList("someip.generic_message.allowed_protocol_majors");
+    if (!allowed_majors_str.empty()) {
+        config.generic_message.limits.allowed_protocol_majors.clear();
+        for (const auto& m : allowed_majors_str) {
+            config.generic_message.limits.allowed_protocol_majors.push_back(
+                static_cast<uint32_t>(std::stoul(m)));
+        }
+    }
+    config.generic_message.limits.max_envelope_bytes = static_cast<uint32_t>(
+        cfg->getInt("someip.generic_message.max_envelope_bytes", config.generic_message.limits.max_envelope_bytes));
+    config.generic_message.limits.max_payload_bytes = static_cast<uint32_t>(
+        cfg->getInt("someip.generic_message.max_payload_bytes", config.generic_message.limits.max_payload_bytes));
+    config.generic_message.max_in_flight = static_cast<uint32_t>(
+        cfg->getInt("someip.generic_message.max_in_flight", config.generic_message.max_in_flight));
+    config.generic_message.downlink_queue_capacity = static_cast<uint32_t>(
+        cfg->getInt("someip.generic_message.downlink_queue_capacity", config.generic_message.downlink_queue_capacity));
+    config.generic_message.worker_count = static_cast<uint32_t>(
+        cfg->getInt("someip.generic_message.worker_count", config.generic_message.worker_count));
+    config.generic_message.tsp_timeout_ms = static_cast<uint32_t>(
+        cfg->getInt("someip.generic_message.tsp_timeout_ms", config.generic_message.tsp_timeout_ms));
+
+    // 桥接（CR-005/CR-006/CR-007/CR-008）
     config.bridge_request_deadline_ms = static_cast<uint32_t>(cfg->getInt("someip.bridge.request_deadline_ms", config.bridge_request_deadline_ms));
     config.bridge_queue_capacity = static_cast<uint32_t>(cfg->getInt("someip.bridge.queue_capacity", config.bridge_queue_capacity));
     config.bridge_worker_count = static_cast<uint32_t>(cfg->getInt("someip.bridge.worker_count", config.bridge_worker_count));
+
+    // 严格校验 tsp_timeout_ms < request_deadline_ms（CR-008 §配置增量）
+    if (config.generic_message.tsp_timeout_ms >= config.bridge_request_deadline_ms) {
+        tbox::someip::SomeipLogAdapter::runtime().error("someip.runtime.config_invalid",
+            "someip.generic_message.tsp_timeout_ms must be < someip.bridge.request_deadline_ms",
+            {tbox::fw::log::Field("tsp_timeout_ms", tbox::fw::log::FieldValue::makeInt(
+                 config.generic_message.tsp_timeout_ms)),
+             tbox::fw::log::Field("request_deadline_ms", tbox::fw::log::FieldValue::makeInt(
+                 config.bridge_request_deadline_ms))}
+        );
+        return 1;
+    }
 
     // 内部 client facade 连接
     config.tsp.socket_path = cfg->getString("someip.clients.tsp.socket_path", config.tsp.socket_path);
@@ -135,7 +185,7 @@ int main(int argc, char* argv[]) {
     // 服务开关（默认 true；仅 dev profile 配置，production schema 拒绝 CR-007 §8 REQ-008）
     config.enable_net_status = cfg->getBool("someip.enable_net_status", true);
     config.enable_remote_cmd_relay = cfg->getBool("someip.enable_remote_cmd_relay", true);
-    config.enable_fota_relay = cfg->getBool("someip.enable_fota_relay", true);
+    config.enable_vehicle_message_gateway = cfg->getBool("someip.enable_vehicle_message_gateway", true);
 
     // 6. 创建并初始化守护进程
     tbox::someip::SomeipDaemon daemon;

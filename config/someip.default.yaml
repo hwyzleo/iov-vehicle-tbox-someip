@@ -1,14 +1,16 @@
-# TBOX-SOMEIP 量产默认模板（CR-007 §6）
+# TBOX-SOMEIP 量产默认模板（CR-007 §6 / CR-008）
 # 由 someip-runtime component 安装为逻辑目标 /etc/tbox/conf.d/someip.yaml
 # （CMake install RENAME，DESTDIR staging: out/<platform>/<profile>/install-root/etc/tbox/conf.d/someip.yaml）。
 # BUILD 可选 overlay（configs/orin/rootfs/etc/tbox/conf.d/someip.yaml）覆盖。
 # runtime 加载顺序：/etc/tbox/common.yaml -> /etc/tbox/conf.d/someip.yaml（CR-007 §5）。
 #
-# 约束（CR-007 §6/§8）：
+# 约束（CR-007 §6/§8 / CR-008）：
 # - 只含代码实际消费的非秘密、安全默认值；有界参数已由代码/Registry 事实回填。
 # - 不含生产 IP/路由、车辆身份、秘密、payload 或 mock peer。
 # - SOMEIP 是 framework-ipc consumer/bridge，不提供 Server；不得出现 someip.ipc.socket_path
 #   或 /tmp/tbox-someip.sock。
+# - CR-008：旧 report_software_inventory(0x0001)/fota_command(0x8001) 已删除并
+#   reserved，不得复用/注册；通用成员精确 ID 由 Registry 分配，未分配前不注册。
 # - production schema 默认拒绝未知键；enable_* 等 dev/test 开关不在本模板（CR-007 §8 REQ-008）。
 someip:
   config_version: 1
@@ -26,13 +28,32 @@ someip:
     initial_delay_ms: 10
     repetition_base_delay_ms: 200
 
+  # 通用车云消息成员（CR-008 §3.3）：
+  #   METHOD_EXCHANGE_VEHICLE_MESSAGE / EVENT_VEHICLE_MESSAGE。
+  # 精确 Method/Event/Eventgroup ID 与接口版本由整车 SOME/IP Service Registry
+  # 分配（US-011），未分配前 id 缺省 → daemon 不注册/延迟 Offer 通用成员，
+  # 不猜测或占用未批准数值。Registry 分配后回填 id/eventgroup_id 并走
+  # Registry/config/IDL 一致性门禁后发布。
   members:
-    report_software_inventory:
+    vehicle_message_exchange:
       type: method
-      id: 0x0001
-    fota_command:
+      interface_major: 1
+      # id: <registry-assigned>
+    vehicle_message_downlink:
       type: event
-      id: 0x8001
+      # id: <registry-assigned>
+      # eventgroup_id: <registry-assigned>
+
+  # 通用车云消息限制（CR-008 §配置增量；有界默认由代码/容量测试回填）
+  generic_message:
+    allowed_services: [vehicle.fota]
+    allowed_protocol_majors: [1]
+    max_envelope_bytes: 16384
+    max_payload_bytes: 8192
+    max_in_flight: 64
+    downlink_queue_capacity: 256
+    worker_count: 1
+    tsp_timeout_ms: 2500        # 须 < bridge.request_deadline_ms
 
   bridge:
     request_deadline_ms: 3000
@@ -57,4 +78,4 @@ someip:
       event: INFO
       ipc_bridge: INFO
       serializer: INFO
-      fota_relay: INFO
+      vehicle_message: INFO

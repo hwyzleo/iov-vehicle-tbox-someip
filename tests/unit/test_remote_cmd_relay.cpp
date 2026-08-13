@@ -15,6 +15,13 @@ public:
     }
     void subscribeNetStatusChanges(NetStatusCallback callback) override {}
     void subscribeRemoteCommands(RemoteCommandCallback callback) override {}
+    bool supportsVehicleMessage() const override { return false; }
+    VehicleMessageResponseFrame exchangeVehicleMessage(const VehicleMessageFrame&) override {
+        VehicleMessageResponseFrame r;
+        r.outcome = TransportOutcome::Unavailable;
+        return r;
+    }
+    void subscribeVehicleMessage(std::string_view, VehicleMessageHandler) override {}
 };
 
 class RemoteCmdRelayTest : public ::testing::Test {

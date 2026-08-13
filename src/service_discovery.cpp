@@ -237,6 +237,33 @@ void ServiceDiscovery::registerMethodHandler(MethodId method_id, SomeIpRequestHa
     );
 }
 
+void ServiceDiscovery::registerEventHandler(EventId event_id, SomeIpNotificationHandler handler) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!initialized_ || !someip_service_) {
+        SomeipLogAdapter::sd().error("someip.sd.event_register.failed",
+            "ServiceDiscovery not initialized or SomeIpService not available",
+            {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(event_id))}
+        );
+        return;
+    }
+
+    someip_service_->registerEventHandler(event_id, std::move(handler));
+    SomeipLogAdapter::sd().info("someip.sd.event_registered",
+        "Event handler registered",
+        {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(event_id))}
+    );
+}
+
+bool ServiceDiscovery::notifyEvent(EventId event_id, const SomeIpMessage& notification) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!initialized_ || !someip_service_) {
+        return false;
+    }
+    return someip_service_->notifyEvent(event_id, notification);
+}
+
 void ServiceDiscovery::shutdown() {
     std::lock_guard<std::mutex> lock(mutex_);
 

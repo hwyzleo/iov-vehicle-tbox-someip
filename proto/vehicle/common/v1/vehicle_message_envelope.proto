@@ -1,0 +1,53 @@
+// TBOX-SOMEIP-DSN-CR-008: 通用车云消息公共 Envelope。
+//
+// VEH-PROTO 为协议文档 SSOT；各服务自备其所需 proto（CR-008 D3 决策）。
+// 本文件定义 TBOX-SOMEIP 只解码的公共 Envelope：
+//   - payload(10) 承载不透明 bytes（vehicle.fota.v1.* 业务 payload），SOMEIP
+//     只记录其长度做资源准入，绝不解析内部 Task/Consent/Package/Execution/
+//     Control/Log/Policy 字段。
+//   - 字段号固定为设计冻结值（request_id=1 ... trace_context=16），一经发布
+//     不得改号；SOMEIP 不维护本地镜像结构。
+//   - 禁止在 Envelope 外重复定义 payload_bytes / PayloadType / 业务身份。
+//
+// 与 VEH-PROTO、CGW-FOTA、TBOX-TSP 和云端以同一 release-set / golden payload
+// 验证（CR-008 §取代与迁移/测试矩阵）。本文件不得私改 VEH-PROTO 同名契约语义。
+
+syntax = "proto3";
+
+package vehicle.common.v1;
+
+// 通用车云消息 Envelope（SOME/IP 侧只消费本消息做准入、关联与路由）。
+message VehicleMessageEnvelope {
+  // 内部请求标识（SOMEIP 不重新生成业务身份；CGW/云端语义）
+  int64 request_id = 1;
+  // 消息生成时间戳（ms，Unix epoch）
+  int64 timestamp_ms = 2;
+  // 协议版本（major；本 CR 允许 major=1，见 generic_message.allowed_protocol_majors）
+  uint32 protocol_version = 3;
+  // 设备标识（日志按 Identifier 脱敏，SOMEIP 不输出明文）
+  string device_id = 4;
+  // VIN（日志按 Identifier 脱敏，SOMEIP 不输出明文）
+  string vin = 5;
+  // 车辆任务标识（透明，不解析）
+  string vehicle_task_id = 6;
+  // 执行标识（透明，不解析）
+  string execution_id = 7;
+  // 幂等键（上行保留，供 CGW durable 状态收敛）
+  string idempotency_key = 8;
+  // payload 类型（fully-qualified name，如 vehicle.fota.v1.CheckTask）
+  string payload_type = 9;
+  // 不透明业务 payload（bytes；SOMEIP 只做长度/预算准入）
+  bytes payload = 10;
+  // 消息标识（请求/响应关联，response correlation_id 指向请求 message_id）
+  string message_id = 11;
+  // 关联标识
+  string correlation_id = 12;
+  // 消息种类（方向校验用，如 REQUEST/RESPONSE/EVENT）
+  string message_kind = 13;
+  // 服务域（本 CR allowlist 首期为 vehicle.fota）
+  string service = 14;
+  // 过期时间戳（ms，Unix epoch；TTL 准入用）
+  int64 expire_at_ms = 15;
+  // 链路追踪上下文（透传）
+  string trace_context = 16;
+}

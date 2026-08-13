@@ -32,13 +32,23 @@ public:
     
     // 订阅远程命令
     virtual void subscribeRemoteCommands(RemoteCommandCallback callback) = 0;
-    
-    // FOTA 上行：上报软件版本快照
-    // 返回桥接结果：SUCCESS/UNKNOWN/FAILED，UNKNOWN 时仅可复用 msg_id 查询/单次重试
-    virtual BridgeCallResult reportSoftwareInventory(const VehicleSoftwareSnapshot& snapshot) = 0;
-    
-    // FOTA 下行：订阅 FOTA 命令（预留）
-    virtual void subscribeFotaCommands(FotaCommandCallback callback) = 0;
+
+    // ---- CR-008 通用车云消息契约 ----
+    // 通用 exchange/downlink 能力探测（US-013）：
+    // 后续版本化 tbox::tsp_client 通用消息 API 未就绪或版本不兼容时返回 false，
+    // GenericMessageBridge 进入 DEGRADED，对外返回 VersionMismatch/Unavailable，
+    // 不回退解析 OTA payload 或本地拼装云端协议。
+    virtual bool supportsVehicleMessage() const = 0;
+
+    // 上行：通用 request/response。SOMEIP 保持 messageId/correlationId/
+    // idempotencyKey/trace；不得由 SOMEIP 重新生成业务身份（US-013）。
+    virtual VehicleMessageResponseFrame exchangeVehicleMessage(
+        const VehicleMessageFrame& frame) = 0;
+
+    // 下行：独立订阅 + 有界队列；慢消费者不得阻塞 TSP callback / SOME/IP
+    // I/O / SD 或其他能力（US-013）。
+    virtual void subscribeVehicleMessage(std::string_view service,
+                                         VehicleMessageHandler handler) = 0;
 };
 
 // PROV Client 接口

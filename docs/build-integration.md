@@ -128,10 +128,15 @@ rootfs **不安装** HOST generator、测试 peer、fixture、源码、开发头
 
 ## 8. 协议常量（非秘密配置，可保留）
 
-Service ID `0x6101`、Instance ID `0x0001`、TCP `56101`、SD UDP `30490`、
-Method `0x0001`（REPORT_SOFTWARE_INVENTORY）、Event `0x8001`
-（FOTA_COMMAND）为非秘密协议常量；网卡、unicast/multicast 地址与环境路由
-通过受控配置注入（config/runtime/vsomeip.json `network.primary.name` 等为默认占位）。
+Service ID `0x6101`、Instance ID `0x0001`、TCP `56101`、SD UDP `30490`
+为非秘密协议常量；网卡、unicast/multicast 地址与环境路由通过受控配置注入
+（config/runtime/vsomeip.json `network.primary.name` 等为默认占位）。
+
+CR-008：旧 FOTA 专用 `METHOD_REPORT_SOFTWARE_INVENTORY(0x0001)` / `EVENT_FOTA_COMMAND(0x8001)`
+已删除并永久 reserved（不复用/不双注册）。通用车云消息成员
+`METHOD_EXCHANGE_VEHICLE_MESSAGE` / `EVENT_VEHICLE_MESSAGE` 的精确 ID/Eventgroup 由整车
+SOME/IP Service Registry 分配（US-011），未分配前通用成员不注册（延迟 Offer），
+量产配置不得猜测未批准数值。
 
 ## 9. 配置分层（CR-007）
 

@@ -4,7 +4,7 @@
 #include "someip_daemon.h"
 #include "ipc_bridge.h"
 #include "service_discovery.h"
-#include "services/fota_relay.h"
+#include "services/vehicle_message_gateway.h"
 #include <thread>
 #include <chrono>
 #include <vector>
@@ -12,6 +12,11 @@
 namespace tbox {
 namespace someip {
 namespace {
+
+// CR-008：旧 report_software_inventory(0x0001)/fota_command(0x8001) reserved，
+// 测试统一改用通用车云消息。以下为 test-only 成员 ID（非量产）。
+constexpr uint16_t kTestMethodId = 0x0002;   // METHOD_EXCHANGE_VEHICLE_MESSAGE (test-only)
+constexpr uint16_t kTestEventId = 0x8002;    // EVENT_VEHICLE_MESSAGE (test-only)
 
 class LogIntegrationTest : public ::testing::Test {
 protected:
@@ -27,8 +32,8 @@ protected:
     }
 
     void TearDown() override {
-        if (relay_) {
-            relay_->stop();
+        if (gateway_) {
+            gateway_->stop();
         }
         if (bridge_) {
             bridge_->shutdown();
@@ -36,7 +41,7 @@ protected:
     }
 
     std::unique_ptr<IpcBridge> bridge_;
-    std::unique_ptr<FotaRelayService> relay_;
+    std::unique_ptr<VehicleMessageGateway> gateway_;
 };
 
 // 测试服务初始化日志
@@ -68,10 +73,10 @@ TEST_F(LogIntegrationTest, ContextPropagationMethodToIpcToResponse) {
         EXPECT_EQ(current->trace_id, trace_id);
         EXPECT_EQ(current->request_id, request_id);
 
-        // 模拟 Method 入站
+        // 模拟 Method 入站（通用车云消息 exchange）
         SomeipLogAdapter::method().debug("someip.method.request.received",
             "Method request received",
-            {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(method_ids::REPORT_SOFTWARE_INVENTORY)),
+            {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kTestMethodId)),
              tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id))}
         );
 
@@ -79,14 +84,14 @@ TEST_F(LogIntegrationTest, ContextPropagationMethodToIpcToResponse) {
         SomeipLogAdapter::ipc_bridge().info("someip.ipc.call.started",
             "Internal client call",
             {tbox::fw::log::Field("internal_service", tbox::fw::log::FieldValue::makeString("tsp")),
-             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("report_software_inventory"))}
+             tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("exchange_vehicle_message"))}
         );
 
         // 模拟 Method 响应
         SomeipLogAdapter::method().info("someip.method.request.completed",
             "Method request completed",
             {tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
-             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("accepted")),
              tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(45))}
         );
     }
@@ -116,50 +121,46 @@ TEST_F(LogIntegrationTest, ContextPropagationIpcNotificationToEvent) {
     EXPECT_EQ(tbox::fw::log::ContextScope::current(), nullptr);
 }
 
-// 测试 FOTA 上下行跨 SOME/IP/TSP 链路关联
-TEST_F(LogIntegrationTest, FotaUpstreamDownstreamCorrelation) {
-    std::string tsp_request_id = "tsp-req-fota-001";
+// 测试通用车云消息上下行跨 SOME/IP/TSP 链路关联（CR-008）
+TEST_F(LogIntegrationTest, VehicleMessageUpstreamDownstreamCorrelation) {
+    std::string tsp_request_id = "tsp-req-vm-001";
 
-    // FOTA 上行：reportSoftwareInventory
+    // 上行：exchangeVehicleMessage
     {
         auto scope = make_context_scope("", tsp_request_id);
 
-        SomeipLogAdapter::fota_relay().info("someip.fota.inventory.relayed",
-            "Software inventory relayed to TSP",
+        SomeipLogAdapter::vehicle_message().info("someip.vehicle_message.request.completed",
+            "Vehicle message relayed to TSP",
             {tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(tsp_request_id)),
-             tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
-             tbox::fw::log::Field("entry_count", tbox::fw::log::FieldValue::makeInt(3)),
-             tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString("LSVAU2180N2123456"),
-                 tbox::fw::log::Sensitivity::Identifier),
-             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
+             tbox::fw::log::Field("service", tbox::fw::log::FieldValue::makeString("vehicle.fota")),
+             tbox::fw::log::Field("payload_type", tbox::fw::log::FieldValue::makeString("vehicle.fota.v1.CheckTask")),
+             tbox::fw::log::Field("message_id", tbox::fw::log::FieldValue::makeString("msg-001")),
+             tbox::fw::log::Field("outcome", tbox::fw::log::FieldValue::makeString("accepted")),
              tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(120))}
         );
     }
 
-    // FOTA 下行：onFotaCommand（关联同一 TSP 请求标识）
+    // 下行：onVehicleMessage（关联同一 TSP 请求标识）
     {
         auto scope = make_context_scope("", tsp_request_id);
 
-        SomeipLogAdapter::fota_relay().info("someip.fota.command.relayed",
-            "FOTA command relayed to CGW",
+        SomeipLogAdapter::vehicle_message().info("someip.vehicle_message.downlink.forwarded",
+            "Vehicle message downlink relayed to CGW",
             {tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(tsp_request_id)),
              tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("down")),
-             tbox::fw::log::Field("command_id", tbox::fw::log::FieldValue::makeString("cmd-001")),
-             tbox::fw::log::Field("payload_length", tbox::fw::log::FieldValue::makeInt(256),
-                 tbox::fw::log::Sensitivity::Payload),
-             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
-             tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(35))}
+             tbox::fw::log::Field("message_id", tbox::fw::log::FieldValue::makeString("msg-002")),
+             tbox::fw::log::Field("envelope_length", tbox::fw::log::FieldValue::makeInt(256))}
         );
     }
 }
 
-// 测试脱敏：VIN、device_sn、快照、命令、原始 payload 不落日志
+// 测试脱敏：VIN、device_sn、payload 不落日志（CR-008 §日志与指标）
 TEST_F(LogIntegrationTest, Desensitization) {
     std::string test_vin = "LSVAU2180N2123456";
     std::string test_device_sn = "SN123456789";
 
     // VIN 按 Identifier 处理（默认掩码）
-    SomeipLogAdapter::fota_relay().info("someip.test.desensitization",
+    SomeipLogAdapter::vehicle_message().info("someip.test.desensitization",
         "Test VIN desensitization",
         {tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(test_vin),
              tbox::fw::log::Sensitivity::Identifier),
@@ -176,14 +177,14 @@ TEST_F(LogIntegrationTest, Desensitization) {
          tbox::fw::log::Field("payload_length", tbox::fw::log::FieldValue::makeInt(512))}
     );
 
-    // 软件版本快照仅记录长度/条目数
-    SomeipLogAdapter::fota_relay().info("someip.fota.inventory.relayed",
-        "Test snapshot desensitization",
-        {tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
-         tbox::fw::log::Field("entry_count", tbox::fw::log::FieldValue::makeInt(5)),
+    // 通用车云消息仅记录 service/payloadType/长度/outcome 摘要
+    SomeipLogAdapter::vehicle_message().info("someip.vehicle_message.request.received",
+        "Test envelope desensitization",
+        {tbox::fw::log::Field("service", tbox::fw::log::FieldValue::makeString("vehicle.fota")),
+         tbox::fw::log::Field("payload_type", tbox::fw::log::FieldValue::makeString("vehicle.fota.v1.CheckTask")),
+         tbox::fw::log::Field("envelope_length", tbox::fw::log::FieldValue::makeInt(256)),
          tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(test_vin),
-             tbox::fw::log::Sensitivity::Identifier),
-         tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded"))}
+             tbox::fw::log::Sensitivity::Identifier)}
     );
 }
 
@@ -231,13 +232,14 @@ TEST_F(LogIntegrationTest, MultipleModulesLogging) {
     SomeipLogAdapter::event().info("someip.event.test", "Event module test log");
     SomeipLogAdapter::ipc_bridge().info("someip.ipc.test", "IPC bridge module test log");
     SomeipLogAdapter::serializer().info("someip.serializer.test", "Serializer module test log");
-    SomeipLogAdapter::fota_relay().info("someip.fota.test", "FOTA relay module test log");
+    SomeipLogAdapter::vehicle_message().info("someip.vehicle_message.test",
+        "Vehicle message module test log");
 }
 
-// 测试 FotaRelayService 集成日志
-TEST_F(LogIntegrationTest, FotaRelayServiceIntegration) {
-    // 注册 mock TSP client
-    class MockTspClientForLog : public ITspClient {
+// 测试 VehicleMessageGateway 集成日志（CR-008）
+TEST_F(LogIntegrationTest, VehicleMessageGatewayIntegration) {
+    // Fake TSP 通用 client（实现 CR-008 通用契约）
+    class FakeTspClientForLog : public ITspClient {
     public:
         bool initialize() override { return true; }
         bool isConnected() const override { return true; }
@@ -245,36 +247,24 @@ TEST_F(LogIntegrationTest, FotaRelayServiceIntegration) {
         ErrorCode getNetStatus(NetStatusData&) override { return ErrorCode::SUCCESS; }
         void subscribeNetStatusChanges(NetStatusCallback) override {}
         void subscribeRemoteCommands(RemoteCommandCallback) override {}
-        BridgeCallResult reportSoftwareInventory(const VehicleSoftwareSnapshot&) override { return BridgeCallResult{BridgeOutcome::SUCCESS, 0, ""}; }
-        void subscribeFotaCommands(FotaCommandCallback) override {}
+        bool supportsVehicleMessage() const override { return true; }
+        VehicleMessageResponseFrame exchangeVehicleMessage(const VehicleMessageFrame&) override {
+            VehicleMessageResponseFrame r;
+            r.outcome = TransportOutcome::Accepted;
+            return r;
+        }
+        void subscribeVehicleMessage(std::string_view, VehicleMessageHandler) override {}
     };
 
-    auto mock_client = std::make_shared<MockTspClientForLog>();
-    bridge_->registerClient("tsp", mock_client);
+    auto fake_client = std::make_shared<FakeTspClientForLog>();
+    bridge_->registerClient("tsp", fake_client);
 
-    relay_ = std::make_unique<FotaRelayService>(bridge_.get(), someip_addressing::SERVICE_ID, someip_addressing::INSTANCE_ID);
-    ASSERT_TRUE(relay_->initialize());
-    ASSERT_TRUE(relay_->start());
-
-    // 测试上报软件库存
-    VehicleSoftwareSnapshot snapshot;
-    snapshot.vin = "LSVAU2180N2123456";
-    snapshot.registry_version = "1.0.0";
-    snapshot.collected_at = "2026-07-27T12:00:00Z";
-    snapshot.snapshot_seq = 1;
-
-    EcuVersionEntry ecu1;
-    ecu1.ecu_id = "ECU_A";
-    ecu1.sw_version = "1.0.0";
-    snapshot.ecu_list.push_back(ecu1);
-
-    EcuVersionEntry ecu2;
-    ecu2.ecu_id = "ECU_B";
-    ecu2.sw_version = "2.1.3";
-    snapshot.ecu_list.push_back(ecu2);
-
-    auto result = relay_->reportSoftwareInventory(snapshot);
-    EXPECT_EQ(result.outcome, BridgeOutcome::SUCCESS);
+    GenericMessageConfig cfg;
+    gateway_ = std::make_unique<VehicleMessageGateway>(
+        bridge_.get(), someip_addressing::SERVICE_ID, someip_addressing::INSTANCE_ID, cfg);
+    ASSERT_TRUE(gateway_->initialize());
+    ASSERT_TRUE(gateway_->start());
+    EXPECT_FALSE(gateway_->isDegraded());
 }
 
 // 测试 strict 模式初始化

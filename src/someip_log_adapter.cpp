@@ -40,8 +40,8 @@ tbox::fw::log::Logger SomeipLogAdapter::serializer() {
     return tbox::fw::log::Logger::get("serializer");
 }
 
-tbox::fw::log::Logger SomeipLogAdapter::fota_relay() {
-    return tbox::fw::log::Logger::get("fota_relay");
+tbox::fw::log::Logger SomeipLogAdapter::vehicle_message() {
+    return tbox::fw::log::Logger::get("vehicle_message");
 }
 
 } // namespace someip

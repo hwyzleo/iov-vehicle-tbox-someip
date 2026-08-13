@@ -43,14 +43,16 @@ def test_someip_connection(host='127.0.0.1', port=56101):
         sock.connect((host, port))
         print("✓ 连接成功！")
         
-        # 创建 SOME/IP 请求消息
+        # 创建 SOME/IP 请求消息（仅做连通性探测；method 0x6102 未注册，
+        # 预期收到 E_UNKNOWN_METHOD 响应。CR-008：旧 0x0001/0x8001 已 reserved，
+        # 不得用于探测。）
         service_id = 0x6101
-        method_id = 0x0001
+        method_id = 0x6102  # 连通性探测用未注册 method，非业务调用
         client_id = 0x0001
         session_id = 0x0001
         
         header = create_someip_header(service_id, method_id, client_id, session_id)
-        print(f"发送 SOME/IP 请求: Service=0x{service_id:04X}, Method=0x{method_id:04X}")
+        print(f"发送 SOME/IP 请求: Service=0x{service_id:04X}, Method=0x{method_id:04X} (连通性探测)")
         
         sock.send(header)
         

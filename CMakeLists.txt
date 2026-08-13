@@ -54,6 +54,50 @@ if(NOT TARGET tbox::prov_client)
 endif()
 
 # ============================================================
+# Proto / protobuf（CR-008：VEH-PROTO 为文档 SSOT，各服务自备所需 proto）
+# - HOST：protoc 仅生成构建中间文件（不进入 runtime package）
+# - TARGET：libprotobuf runtime 来自受控依赖（BUILD dep staging / pkg-config），
+#   与 vsomeip 的 HOST/TARGET 分离模式一致（CR-006 §11.4）。
+# ============================================================
+find_program(PROTOC_EXECUTABLE NAMES protoc REQUIRED)
+if(NOT TARGET PkgConfig::PROTOBUF)
+    find_package(PkgConfig REQUIRED)
+    set(PKG_CONFIG_USE_CMAKE_PREFIX_PATH ON)
+    pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
+endif()
+
+set(PROTO_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/proto")
+set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/proto")
+file(GLOB_RECURSE PROTO_FILES CONFIGURE_DEPENDS "${PROTO_SRC_DIR}/*.proto")
+
+set(PROTO_GEN_SOURCES "")
+set(PROTO_GEN_HEADERS "")
+foreach(PROTO_FILE ${PROTO_FILES})
+    file(RELATIVE_PATH PROTO_REL "${PROTO_SRC_DIR}" "${PROTO_FILE}")
+    string(REPLACE ".proto" ".pb.cc" PROTO_CC "${PROTO_REL}")
+    string(REPLACE ".proto" ".pb.h" PROTO_H "${PROTO_REL}")
+    set(PROTO_CC_ABS "${PROTO_GEN_DIR}/${PROTO_CC}")
+    set(PROTO_H_ABS "${PROTO_GEN_DIR}/${PROTO_H}")
+    list(APPEND PROTO_GEN_SOURCES "${PROTO_CC_ABS}")
+    list(APPEND PROTO_GEN_HEADERS "${PROTO_H_ABS}")
+    add_custom_command(
+        OUTPUT "${PROTO_CC_ABS}" "${PROTO_H_ABS}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${PROTO_GEN_DIR}"
+        COMMAND ${PROTOC_EXECUTABLE} --proto_path=${PROTO_SRC_DIR}
+                --cpp_out=${PROTO_GEN_DIR} "${PROTO_FILE}"
+        DEPENDS "${PROTO_FILE}"
+        COMMENT "protoc: ${PROTO_REL}"
+    )
+endforeach()
+
+if(PROTO_GEN_SOURCES)
+    add_library(someip_proto STATIC ${PROTO_GEN_SOURCES})
+    target_include_directories(someip_proto PUBLIC "${PROTO_GEN_DIR}")
+    target_link_libraries(someip_proto PUBLIC PkgConfig::PROTOBUF)
+    set_target_properties(someip_proto PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
+# ============================================================
 # SOME/IP 中间件（CR-006 §11.4 HOST/TARGET 分离）
 # - HOST：CommonAPI core/SOME-IP generator 仅在受控 HOST 执行，不进入
 #   TARGET link / runtime / package（BUILD toolchain 已保证

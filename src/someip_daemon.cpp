@@ -4,105 +4,36 @@
 
 #include "bridge/tsp_client_adapter.h"
 #include "bridge/prov_client_adapter.h"
+#include "bridge/vehicle_message_validator.h"
 
 #include <csignal>
-#include <sstream>
 #include <string>
 #include <vector>
-#include <stdexcept>
 #include <chrono>
 
 namespace tbox {
 namespace someip {
 
-/**
- * @brief 解析 FOTA 软件库存上报的 payload
- *
- * Payload 格式（纯文本，| 分隔）：
- *   VIN|snapshot_seq|ecu_count|ecu_id_1,sw_version_1|ecu_id_2,sw_version_2|...
- *
- * 示例：
- *   12345678901234567|1|3|ECU_A,1.0.0|ECU_B,2.1.3|ECU_C,unknown
- *
- * @param payload 原始 payload 字节
- * @return 解析后的 VehicleSoftwareSnapshot
- * @throw std::runtime_error 解析失败时抛出异常
- */
-static VehicleSoftwareSnapshot parseSoftwareInventoryPayload(const std::vector<uint8_t>& payload) {
-    // 将 payload 转换为字符串
-    std::string text(payload.begin(), payload.end());
+namespace {
 
-    // 移除可能的尾部空白字符
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) {
-        text.pop_back();
+// 通用车云消息 wire：SOME/IP payload（uint8）<-> Envelope bytes（std::byte）
+std::vector<std::byte> toBytes(const std::vector<uint8_t>& v) {
+    std::vector<std::byte> out(v.size());
+    for (size_t i = 0; i < v.size(); ++i) {
+        out[i] = static_cast<std::byte>(v[i]);
     }
-
-    std::istringstream iss(text);
-    std::string token;
-    std::vector<std::string> tokens;
-
-    // 按 | 分割
-    while (std::getline(iss, token, '|')) {
-        tokens.push_back(token);
-    }
-
-    // 至少需要 VIN|snapshot_seq|ecu_count 三个字段
-    if (tokens.size() < 3) {
-        throw std::runtime_error("Invalid payload format: too few fields");
-    }
-
-    VehicleSoftwareSnapshot snapshot;
-    snapshot.vin = tokens[0];
-
-    // 解析 snapshot_seq
-    try {
-        snapshot.snapshot_seq = std::stoull(tokens[1]);
-    } catch (const std::exception& e) {
-        throw std::runtime_error("Invalid snapshot_seq: " + tokens[1]);
-    }
-
-    // 解析 ecu_count
-    size_t ecu_count;
-    try {
-        ecu_count = std::stoull(tokens[2]);
-    } catch (const std::exception& e) {
-        throw std::runtime_error("Invalid ecu_count: " + tokens[2]);
-    }
-
-    // 验证字段数量
-    if (tokens.size() < 3 + ecu_count) {
-        throw std::runtime_error("Payload truncated: expected " +
-            std::to_string(3 + ecu_count) + " fields, got " + std::to_string(tokens.size()));
-    }
-
-    // 解析 ECU 列表
-    for (size_t i = 0; i < ecu_count; ++i) {
-        const std::string& ecu_entry = tokens[3 + i];
-
-        // 按逗号分隔 ecu_id,sw_version
-        size_t comma_pos = ecu_entry.find(',');
-        if (comma_pos == std::string::npos) {
-            throw std::runtime_error("Invalid ECU entry format (missing comma): " + ecu_entry);
-        }
-
-        EcuVersionEntry ecu;
-        ecu.ecu_id = ecu_entry.substr(0, comma_pos);
-        ecu.sw_version = ecu_entry.substr(comma_pos + 1);
-
-        // 处理 "unknown" 版本
-        if (ecu.sw_version.value() == "unknown") {
-            ecu.sw_version = std::nullopt;
-        }
-
-        snapshot.ecu_list.push_back(std::move(ecu));
-    }
-
-    // 设置默认值
-    snapshot.registry_version = "1.0";
-    snapshot.collected_at = "";  // 可由调用方填充时间戳
-
-    return snapshot;
+    return out;
 }
+
+std::vector<uint8_t> toU8(const std::vector<std::byte>& v) {
+    std::vector<uint8_t> out(v.size());
+    for (size_t i = 0; i < v.size(); ++i) {
+        out[i] = static_cast<uint8_t>(v[i]);
+    }
+    return out;
+}
+
+} // namespace
 
 SomeipDaemon* SomeipDaemon::instance_ = nullptr;
 
@@ -205,11 +136,11 @@ bool SomeipDaemon::start() {
         }
     }
 
-    if (fota_relay_service_) {
-        if (!fota_relay_service_->start()) {
+    if (vehicle_message_gateway_) {
+        if (!vehicle_message_gateway_->start()) {
             SomeipLogAdapter::runtime().error("someip.runtime.service_start_failed",
-                "Failed to start FotaRelay service",
-                {tbox::fw::log::Field("service_name", tbox::fw::log::FieldValue::makeString("fota_relay"))}
+                "Failed to start VehicleMessageGateway service",
+                {tbox::fw::log::Field("service_name", tbox::fw::log::FieldValue::makeString("vehicle_message"))}
             );
             return false;
         }
@@ -243,8 +174,8 @@ void SomeipDaemon::shutdown() {
         remote_cmd_relay_service_->stop();
     }
 
-    if (fota_relay_service_) {
-        fota_relay_service_->stop();
+    if (vehicle_message_gateway_) {
+        vehicle_message_gateway_->stop();
     }
 
     // 停止服务发现
@@ -283,7 +214,7 @@ bool SomeipDaemon::initializeIpcClients() {
         "Using framework-ipc domain client facades (tsp/prov)"
     );
 
-    // TSP: FOTA 上行/下行链路走 tbox::tsp_client (CR-005)
+    // TSP: 通用车云消息上行/下行链路走 tbox::tsp_client（CR-005/CR-008）
     TspAdapterConfig tsp_cfg;
     tsp_cfg.socket_path = config_.tsp.socket_path;
     tsp_cfg.default_timeout_ms = config_.bridge_request_deadline_ms;
@@ -347,13 +278,16 @@ bool SomeipDaemon::initializeServices() {
         }
     }
 
-    // 初始化 FotaRelay 服务
-    if (config_.enable_fota_relay) {
-        fota_relay_service_ = std::make_unique<FotaRelayService>(ipc_bridge_.get(), config_.service_id, config_.instance_id);
-        if (!fota_relay_service_->initialize()) {
+    // 初始化 VehicleMessageGateway（CR-008 通用车云消息门面，取代旧 FOTA 中继）
+    if (config_.enable_vehicle_message_gateway) {
+        GenericMessageConfig vm_cfg = config_.generic_message;
+
+        vehicle_message_gateway_ = std::make_unique<VehicleMessageGateway>(
+            ipc_bridge_.get(), config_.service_id, config_.instance_id, vm_cfg);
+        if (!vehicle_message_gateway_->initialize()) {
             SomeipLogAdapter::runtime().error("someip.runtime.service_init_failed",
-                "Failed to initialize FotaRelay service",
-                {tbox::fw::log::Field("service_name", tbox::fw::log::FieldValue::makeString("fota_relay"))}
+                "Failed to initialize VehicleMessageGateway service",
+                {tbox::fw::log::Field("service_name", tbox::fw::log::FieldValue::makeString("vehicle_message"))}
             );
             return false;
         }
@@ -404,144 +338,138 @@ bool SomeipDaemon::startServiceDiscovery() {
          tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration))}
     );
 
-    // 注册 FOTA Software Inventory 上报处理器
-    service_discovery_->registerMethodHandler(
-        config_.method_report_software_inventory_id,
-        [this](const SomeIpMessage& request) -> SomeIpMessage {
-            const uint16_t kMethodId = config_.method_report_software_inventory_id;
-            auto req_start_time = std::chrono::steady_clock::now();
+    // 注册通用车云消息 Method（METHOD_EXCHANGE_VEHICLE_MESSAGE，CR-008）。
+    // 精确 Method ID 由 Registry 分配（US-011）；未分配前不注册（延迟 Offer），
+    // 不猜测/占用未批准数值。
+    if (config_.method_exchange_vehicle_message_id.has_value()) {
+        const uint16_t kMethodId = config_.method_exchange_vehicle_message_id.value();
+        service_discovery_->registerMethodHandler(kMethodId,
+            [this, kMethodId](const SomeIpMessage& request) -> SomeIpMessage {
+                auto req_start_time = std::chrono::steady_clock::now();
+                std::string request_id = "someip-" + std::to_string(request.header.session_id);
+                auto scope = make_context_scope("", request_id);
 
-            // 建立 SOME/IP Method 上下文
-            std::string request_id = "someip-" + std::to_string(request.header.session_id);
-            auto scope = make_context_scope("", request_id);
-
-            SomeipLogAdapter::method().debug("someip.method.request.received",
-                "Method request received",
-                {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(request.header.service_id)),
-                 tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
-                 tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(request.header.client_id)),
-                 tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id))}
-            );
-
-            SomeIpMessage response;
-            response.header.service_id = request.header.service_id;
-            response.header.method_id = request.header.method_id;
-            response.header.message_type = SomeIpMessageType::RESPONSE;
-            response.header.client_id = request.header.client_id;
-            response.header.session_id = request.header.session_id;
-            response.header.protocol_version = request.header.protocol_version;
-            response.header.interface_version = request.header.interface_version;
-
-            // 检查 FotaRelayService 是否可用
-            if (!fota_relay_service_) {
-                SomeipLogAdapter::fota_relay().error("someip.fota.inventory.relayed",
-                    "FotaRelayService not available",
-                    {tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
-                     tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
-                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
-                     tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+                SomeipLogAdapter::method().debug("someip.method.request.received",
+                    "Method request received",
+                    {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(request.header.service_id)),
+                     tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
+                     tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(request.header.client_id)),
+                     tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id))}
                 );
-                response.header.return_code = SomeIpReturnCode::E_NOT_OK;
+
+                SomeIpMessage response;
+                response.header.service_id = request.header.service_id;
+                response.header.method_id = request.header.method_id;
+                response.header.message_type = SomeIpMessageType::RESPONSE;
+                response.header.client_id = request.header.client_id;
+                response.header.session_id = request.header.session_id;
+                response.header.protocol_version = request.header.protocol_version;
+                response.header.interface_version = request.header.interface_version;
+
+                if (!vehicle_message_gateway_) {
+                    response.header.return_code = SomeIpReturnCode::E_NOT_OK;
+                    SomeipLogAdapter::vehicle_message().error("someip.vehicle_message.request.rejected",
+                        "VehicleMessageGateway not available",
+                        {tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
+                         tbox::fw::log::Field("outcome", tbox::fw::log::FieldValue::makeString("unavailable")),
+                         tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1003"))}
+                    );
+                    auto req_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - req_start_time).count();
+                    SomeipLogAdapter::method().info("someip.method.request.completed",
+                        "Method request completed",
+                        {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
+                         tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
+                         tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+                         tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(req_duration))}
+                    );
+                    return response;
+                }
+
+                // 构造 wire frame：单一序列化 Envelope，payload 透明（CR-008 US-012）
+                VehicleMessageFrame frame;
+                frame.envelope_bytes = toBytes(request.payload);
+
+                // 通用 exchange：校验 → in-flight → TSP 桥接 → 关联校验
+                VehicleMessageResponseFrame result =
+                    vehicle_message_gateway_->exchangeVehicleMessage(frame);
+
+                const bool accepted = (result.outcome == TransportOutcome::Accepted);
+                response.header.return_code =
+                    accepted ? SomeIpReturnCode::E_OK : SomeIpReturnCode::E_NOT_OK;
+
+                std::string result_str;
+                switch (result.outcome) {
+                    case TransportOutcome::Accepted:      result_str = "accepted"; break;
+                    case TransportOutcome::Rejected:      result_str = "rejected"; break;
+                    case TransportOutcome::Timeout:       result_str = "timeout"; break;
+                    case TransportOutcome::Unknown:       result_str = "unknown"; break;
+                    case TransportOutcome::Unavailable:   result_str = "unavailable"; break;
+                    case TransportOutcome::VersionMismatch: result_str = "version_mismatch"; break;
+                    case TransportOutcome::PayloadTooLarge: result_str = "payload_too_large"; break;
+                    case TransportOutcome::ProtocolError: result_str = "protocol_error"; break;
+                    case TransportOutcome::Stopping:      result_str = "stopping"; break;
+                }
+
+                // 响应 payload：outcome + error_code + 可选业务 RESPONSE Envelope
+                response.payload = encodeResponseFrame(result);
 
                 auto req_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - req_start_time).count();
                 SomeipLogAdapter::method().info("someip.method.request.completed",
                     "Method request completed",
                     {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
+                     tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(request.header.client_id)),
                      tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
-                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
                      tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(req_duration))}
                 );
                 return response;
-            }
+            });
+        SomeipLogAdapter::sd().info("someip.sd.method_registered",
+            "Generic vehicle message method registered",
+            {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId))}
+        );
+    } else {
+        // Registry 未分配前不注册（延迟 Offer；US-011 不猜测未批准数值）
+        SomeipLogAdapter::sd().info("someip.sd.method_register.deferred",
+            "Generic vehicle message method not registered: ID pending Registry assignment",
+            {}
+        );
+    }
 
-            // 解析 payload
-            VehicleSoftwareSnapshot snapshot;
-            try {
-                snapshot = parseSoftwareInventoryPayload(request.payload);
-            } catch (const std::exception& e) {
-                SomeipLogAdapter::serializer().error("someip.mapping.failed",
-                    "Failed to parse FOTA inventory payload",
-                    {tbox::fw::log::Field("operation", tbox::fw::log::FieldValue::makeString("deserialize")),
-                     tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
-                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
-                     tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1004")),
-                     tbox::fw::log::Field("payload_length", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(request.payload.size())))}
+    // 注册通用车云消息 Event（EVENT_VEHICLE_MESSAGE 下行）并接线下行通知
+    if (config_.event_vehicle_message_id.has_value() && vehicle_message_gateway_) {
+        const uint16_t kEventId = config_.event_vehicle_message_id.value();
+        service_discovery_->registerEventHandler(kEventId,
+            [](const SomeIpMessage& notification) {
+                // 订阅方处理；当前无内部消费者
+                SomeipLogAdapter::event().debug("someip.event.notification.received",
+                    "Vehicle message event notification received",
+                    {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(
+                         notification.header.method_id))}
                 );
-                response.header.return_code = SomeIpReturnCode::E_NOT_OK;
-
-                auto req_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - req_start_time).count();
-                SomeipLogAdapter::method().info("someip.method.request.completed",
-                    "Method request completed",
-                    {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
-                     tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
-                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
-                     tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(req_duration)),
-                     tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1004"))}
-                );
-                return response;
-            }
-
-            // 调用 FotaRelayService 上报（VIN 按 Identifier 脱敏）
-            auto relay_start_time = std::chrono::steady_clock::now();
-            BridgeCallResult result = fota_relay_service_->reportSoftwareInventory(snapshot);
-            auto relay_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - relay_start_time).count();
-
-            std::string result_str;
-            switch (result.outcome) {
-                case BridgeOutcome::SUCCESS: result_str = "succeeded"; break;
-                case BridgeOutcome::UNKNOWN: result_str = "unknown";   break;
-                default:                     result_str = "failed";    break;
-            }
-
-            if (result.outcome == BridgeOutcome::SUCCESS) {
-                response.header.return_code = SomeIpReturnCode::E_OK;
-
-                SomeipLogAdapter::fota_relay().info("someip.fota.inventory.relayed",
-                    "Software inventory relayed to TSP",
-                    {tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
-                     tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
-                     tbox::fw::log::Field("entry_count", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.ecu_list.size()))),
-                     tbox::fw::log::Field("snapshot_seq", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.snapshot_seq))),
-                     tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(snapshot.vin),
-                         tbox::fw::log::Sensitivity::Identifier),
-                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
-                     tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(relay_duration))}
-                );
-            } else {
-                response.header.return_code = SomeIpReturnCode::E_NOT_OK;
-
-                std::string error_code_str = "TBOX-SOMEIP-1003";
-
-                SomeipLogAdapter::fota_relay().error("someip.fota.inventory.relayed",
-                    "Failed to relay software inventory to TSP",
-                    {tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
-                     tbox::fw::log::Field("direction", tbox::fw::log::FieldValue::makeString("up")),
-                     tbox::fw::log::Field("entry_count", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.ecu_list.size()))),
-                     tbox::fw::log::Field("snapshot_seq", tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(snapshot.snapshot_seq))),
-                     tbox::fw::log::Field("vin", tbox::fw::log::FieldValue::makeString(snapshot.vin),
-                         tbox::fw::log::Sensitivity::Identifier),
-                     tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
-                     tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(relay_duration)),
-                     tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString(error_code_str))}
-                );
-            }
-
-            auto req_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - req_start_time).count();
-            SomeipLogAdapter::method().info("someip.method.request.completed",
-                "Method request completed",
-                {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId)),
-                 tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(request.header.client_id)),
-                 tbox::fw::log::Field("request_id", tbox::fw::log::FieldValue::makeString(request_id)),
-                 tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result_str)),
-                 tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(req_duration))}
-            );
-
-            return response;
-        });
+            });
+        vehicle_message_gateway_->setDownlinkHandler(
+            [this, kEventId](const VehicleMessageFrame& downlink) {
+                // 下行：bridge worker -> EVENT_VEHICLE_MESSAGE 通知（保持顺序）
+                SomeIpMessage notification;
+                notification.header.service_id = config_.service_id;
+                notification.header.method_id = kEventId;
+                notification.header.message_type = SomeIpMessageType::NOTIFICATION;
+                notification.payload = toU8(downlink.envelope_bytes);
+                service_discovery_->notifyEvent(kEventId, notification);
+            });
+        SomeipLogAdapter::sd().info("someip.sd.event_registered",
+            "Generic vehicle message event registered",
+            {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(kEventId))}
+        );
+    } else {
+        SomeipLogAdapter::sd().info("someip.sd.event_register.deferred",
+            "Generic vehicle message event not registered: ID pending Registry assignment",
+            {}
+        );
+    }
 
     // 订阅客户端连接事件
     service_discovery_->subscribeClientConnection(
@@ -570,8 +498,8 @@ void SomeipDaemon::handleClientConnection(const ClientConnectionEvent& event) {
 
     if (event.service_id == config_.service_id &&
         event.instance_id == config_.instance_id) {
-        SomeipLogAdapter::fota_relay().info("someip.fota.client.changed",
-            "CGW-FOTA client subscription changed",
+        SomeipLogAdapter::vehicle_message().info("someip.vehicle_message.client.changed",
+            "CGW client subscription changed",
             {tbox::fw::log::Field("someip_client_id", tbox::fw::log::FieldValue::makeInt(event.client_id)),
              tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString(result))}
         );

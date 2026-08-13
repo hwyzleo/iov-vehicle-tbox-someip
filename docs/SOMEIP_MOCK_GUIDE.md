@@ -153,7 +153,9 @@ someip_service_->registerEventHandler(0x8001, [](const SomeIpMessage& notificati
 
 ```bash
 cd build
-./tests/test_fota_relay
+./tests/test_vehicle_message_gateway
+./tests/test_vehicle_message_validator
+./tests/test_generic_message_bridge
 ./tests/test_someip_integration
 ```
 

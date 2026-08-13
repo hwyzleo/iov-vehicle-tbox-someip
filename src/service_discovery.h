@@ -38,6 +38,16 @@ public:
      */
     void registerMethodHandler(MethodId method_id, SomeIpRequestHandler handler);
 
+    /**
+     * @brief 注册 SOME/IP 事件处理器
+     */
+    void registerEventHandler(EventId event_id, SomeIpNotificationHandler handler);
+
+    /**
+     * @brief 发布事件通知（CR-008 EVENT_VEHICLE_MESSAGE 下行通道）
+     */
+    bool notifyEvent(EventId event_id, const SomeIpMessage& notification);
+
 private:
     bool initialized_;
     std::map<std::pair<uint16_t, uint16_t>, std::function<void(bool)>> availability_callbacks_;

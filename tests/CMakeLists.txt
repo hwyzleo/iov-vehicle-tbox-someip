@@ -23,9 +23,11 @@ set(SERVICE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/someip_context.cpp
     ${CMAKE_SOURCE_DIR}/src/services/net_status.cpp
     ${CMAKE_SOURCE_DIR}/src/services/remote_cmd_relay.cpp
-    ${CMAKE_SOURCE_DIR}/src/services/fota_relay.cpp
+    ${CMAKE_SOURCE_DIR}/src/services/vehicle_message_gateway.cpp
     ${CMAKE_SOURCE_DIR}/src/bridge/tsp_client_adapter.cpp
     ${CMAKE_SOURCE_DIR}/src/bridge/prov_client_adapter.cpp
+    ${CMAKE_SOURCE_DIR}/src/bridge/vehicle_message_validator.cpp
+    ${CMAKE_SOURCE_DIR}/src/bridge/generic_message_bridge.cpp
 )
 
 # 公共测试依赖（使用自定义 test_main.cpp 代替 gtest_main，以便在退出前 flush Logger）
@@ -52,6 +54,9 @@ function(configure_someip_test target_name)
                 PkgConfig::COMMONAPI_SOMEIP
         )
     endif()
+    if(TARGET someip_proto)
+        target_link_libraries(${target_name} PRIVATE someip_proto)
+    endif()
     target_include_directories(${target_name} PRIVATE ${CMAKE_SOURCE_DIR}/src/bridge)
     target_link_libraries(${target_name} PRIVATE tbox::tsp_client tbox::prov_client)
 endfunction()
@@ -60,13 +65,20 @@ endfunction()
 # 单元测试
 # ============================================================
 
-# FOTA Relay 测试
-add_executable(test_fota_relay unit/test_fota_relay.cpp ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
-configure_someip_test(test_fota_relay)
+# 通用车云消息：Envelope 解码/准入（CR-008）
+add_executable(test_vehicle_message_validator unit/test_vehicle_message_validator.cpp
+    ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
+configure_someip_test(test_vehicle_message_validator)
 
-# FOTA Handler 测试（有自己的 main()）
-add_executable(test_fota_handler unit/test_fota_handler.cpp ${SERVICE_SOURCES})
-configure_someip_test(test_fota_handler)
+# 通用车云消息：GenericMessageBridge（CR-008）
+add_executable(test_generic_message_bridge unit/test_generic_message_bridge.cpp
+    ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
+configure_someip_test(test_generic_message_bridge)
+
+# 通用车云消息：VehicleMessageGateway 生命周期（CR-008）
+add_executable(test_vehicle_message_gateway unit/test_vehicle_message_gateway.cpp
+    ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
+configure_someip_test(test_vehicle_message_gateway)
 
 # 日志适配器测试
 add_executable(test_log_adapter unit/test_log_adapter.cpp ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
@@ -95,8 +107,9 @@ configure_someip_test(test_log_integration)
 # ============================================================
 # 注册测试
 # ============================================================
-add_test(NAME FotaRelayTests COMMAND test_fota_relay)
-add_test(NAME FotaHandlerTests COMMAND test_fota_handler)
+add_test(NAME VehicleMessageValidatorTests COMMAND test_vehicle_message_validator)
+add_test(NAME GenericMessageBridgeTests COMMAND test_generic_message_bridge)
+add_test(NAME VehicleMessageGatewayTests COMMAND test_vehicle_message_gateway)
 add_test(NAME LogAdapterTests COMMAND test_log_adapter)
 add_test(NAME LogEventsTests COMMAND test_log_events)
 add_test(NAME SomeipContextTests COMMAND test_someip_context)

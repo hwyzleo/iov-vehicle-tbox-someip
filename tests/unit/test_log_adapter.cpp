@@ -51,8 +51,8 @@ TEST_F(SomeipLogAdapterTest, GetSerializerLogger) {
     logger.info("test.event", "test message");
 }
 
-TEST_F(SomeipLogAdapterTest, GetFotaRelayLogger) {
-    auto logger = SomeipLogAdapter::fota_relay();
+TEST_F(SomeipLogAdapterTest, GetVehicleMessageLogger) {
+    auto logger = SomeipLogAdapter::vehicle_message();
     logger.info("test.event", "test message");
 }
 

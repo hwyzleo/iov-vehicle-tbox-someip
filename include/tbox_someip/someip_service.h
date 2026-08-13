@@ -19,6 +19,9 @@ public:
     virtual void registerMethodHandler(MethodId method_id, SomeIpRequestHandler handler) = 0;
     virtual void registerEventHandler(EventId event_id, SomeIpNotificationHandler handler) = 0;
 
+    // 发布事件通知（CR-008 EVENT_VEHICLE_MESSAGE 下行通道）
+    virtual bool notifyEvent(EventId event_id, const SomeIpMessage& notification) = 0;
+
     virtual bool offerService() = 0;
     virtual void stopOfferService() = 0;
 
