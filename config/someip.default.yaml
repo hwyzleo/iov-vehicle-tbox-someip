@@ -28,21 +28,22 @@ someip:
     initial_delay_ms: 10
     repetition_base_delay_ms: 200
 
-  # 通用车云消息成员（CR-008 §3.3）：
-  #   METHOD_EXCHANGE_VEHICLE_MESSAGE / EVENT_VEHICLE_MESSAGE。
-  # 精确 Method/Event/Eventgroup ID 与接口版本由整车 SOME/IP Service Registry
-  # 分配（US-011），未分配前 id 缺省 → daemon 不注册/延迟 Offer 通用成员，
-  # 不猜测或占用未批准数值。Registry 分配后回填 id/eventgroup_id 并走
-  # Registry/config/IDL 一致性门禁后发布。
+  # 通用车云消息成员（CR-008 §3.3，VEH-SOMEIP SSOT）：
+  #   METHOD_EXCHANGE_VEHICLE_MESSAGE = 0x0002
+  #   EVENT_VEHICLE_MESSAGE            = 0x8002
+  #   EVENTGROUP_VEHICLE_MESSAGE       = 0x0002（包含 Event 0x8002）
+  # 服务定位固定 Service 0x6101 / Instance 0x0001 / TCP 56101 / interface major 1。
+  # 三个 ID 作为一个不可拆分分配组，TBOX-SOMEIP 与 CGW-FOTA 两端必须一致，
+  # 禁止私自别名/重映射；Method 0x0001、Event 0x8001 永久保留不得复用。
   members:
     vehicle_message_exchange:
       type: method
+      id: 0x0002
       interface_major: 1
-      # id: <registry-assigned>
     vehicle_message_downlink:
       type: event
-      # id: <registry-assigned>
-      # eventgroup_id: <registry-assigned>
+      id: 0x8002
+      eventgroup_id: 0x0002
 
   # 通用车云消息限制（CR-008 §配置增量；有界默认由代码/容量测试回填）
   generic_message:

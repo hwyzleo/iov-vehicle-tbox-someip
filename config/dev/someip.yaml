@@ -27,6 +27,7 @@ someip:
     repetition_base_delay_ms: 200
 
   # 通用车云消息成员（CR-008）：TEST-ONLY ID，非量产。
+  # 数值与 VEH-SOMEIP SSOT 一致（Method 0x0002 / Event 0x8002 / Eventgroup 0x0002）。
   members:
     vehicle_message_exchange:
       type: method
@@ -35,7 +36,7 @@ someip:
     vehicle_message_downlink:
       type: event
       id: 0x8002     # TEST-ONLY
-      eventgroup_id: 1
+      eventgroup_id: 0x0002
 
   # 通用车云消息限制（CR-008）
   generic_message:
