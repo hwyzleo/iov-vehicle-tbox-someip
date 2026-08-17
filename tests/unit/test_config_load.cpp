@@ -15,6 +15,8 @@ TEST(ConfigLoadTest, DefaultsMatchRegistryBaseline) {
     // CR-008：通用成员 ID 未由 Registry 分配前为 nullopt（不猜测未批准数值）
     EXPECT_FALSE(cfg.method_exchange_vehicle_message_id.has_value());
     EXPECT_FALSE(cfg.event_vehicle_message_id.has_value());
+    // CR-008：Eventgroup ID 同样须由 Registry 分配，未分配前 nullopt（fail-closed）
+    EXPECT_FALSE(cfg.eventgroup_id.has_value());
     EXPECT_EQ(cfg.transport, "TCP");
     EXPECT_EQ(cfg.sd_protocol, "UDP");
 }

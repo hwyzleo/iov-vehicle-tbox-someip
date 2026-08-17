@@ -40,6 +40,9 @@ public:
         exchange_response_ = std::move(response_envelope);
     }
 
+    // 订阅已建立的连接数（成功 add_subscription 次数，用于 TSP 重启恢复断言）
+    int subscribe_count() const { return subscribe_count_.load(); }
+
     bool start() {
         auto* self = this;
         return server_.start(
@@ -68,6 +71,7 @@ private:
             case kMethodSubscribe:
                 // 注册该连接的 EVENT 订阅后返回成功（status_code==0 → 握手通过）
                 server_.add_subscription(client_fd, kEventVehicleMessage);
+                subscribe_count_.fetch_add(1);
                 return "{\"success\":true}";
             case kMethodExchange: {
                 exchange_calls_.fetch_add(1);
@@ -99,6 +103,7 @@ private:
     std::string exchange_error_;
     std::vector<std::byte> exchange_response_;
     std::atomic<int> exchange_calls_{0};
+    std::atomic<int> subscribe_count_{0};
 };
 
 inline std::string b64_encode_bytes(const std::vector<std::byte>& data) {

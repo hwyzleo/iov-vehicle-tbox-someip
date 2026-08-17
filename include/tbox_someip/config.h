@@ -31,11 +31,11 @@ struct ServiceConfig {
     uint32_t sd_initial_delay_ms = 10;
     uint32_t sd_repetition_base_delay_ms = 200;
 
-    // 通用车云消息成员（CR-008）：精确 Method/Event ID 由 Registry 分配（US-011）。
-    // 未分配前为 nullopt —— daemon 不注册/延迟 Offer 通用成员，不猜测未批准数值。
+    // 通用车云消息成员（CR-008）：精确 Method/Event/Eventgroup ID 由 Registry 分配（US-011）。
+    // 未分配前为 nullopt —— daemon 不注册/不 Offer 通用成员，不猜测未批准数值（fail-closed）。
     std::optional<uint16_t> method_exchange_vehicle_message_id;  // METHOD_EXCHANGE_VEHICLE_MESSAGE
     std::optional<uint16_t> event_vehicle_message_id;            // EVENT_VEHICLE_MESSAGE
-    uint32_t eventgroup_id = 1;         // 精确值由 Registry 分配
+    std::optional<uint32_t> eventgroup_id;   // EVENT_VEHICLE_MESSAGE 的 Eventgroup（Registry 分配）
     uint32_t interface_major = 1;
 
     // 通用车云消息限制（CR-008：someip.yaml generic_message.*）

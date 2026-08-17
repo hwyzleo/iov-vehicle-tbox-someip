@@ -160,6 +160,13 @@ void TspClientAdapter::subscribeVehicleMessage(std::string_view service,
     );
 }
 
+bool TspClientAdapter::isVehicleMessageDownlinkActive() const {
+    // 订阅被服务端拒绝（isActive=false）→ 非活跃；桥接据此进入 DEGRADED
+    // （US-013：订阅失败不得宣称契约 B 可用）。daemon 不可达时订阅连接重试中
+    // （isActive 保持 true），运行期以 Unavailable outcome 表达。
+    return vehicle_subscription_.isActive();
+}
+
 // ============================================================
 // 未迁移能力（占位，对应 facade 未就绪，属后续 CR）
 // ============================================================

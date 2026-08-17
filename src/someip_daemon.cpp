@@ -107,15 +107,9 @@ bool SomeipDaemon::start() {
         "Starting TBOX-SOMEIP daemon"
     );
 
-    // 启动服务发现
-    if (!startServiceDiscovery()) {
-        SomeipLogAdapter::sd().error("someip.sd.start_failed",
-            "Failed to start service discovery"
-        );
-        return false;
-    }
-
-    // 启动所有服务
+    // CR-008 §生命周期/启动：先启动内部服务 —— VehicleMessageGateway::start 完成
+    // TSP 通用能力探测 + 下行订阅 + 有界 queue/worker；完成注册和订阅后再进入
+    // SOME/IP runtime/SD 与 OfferService（依赖未就绪只延迟通用成员，不阻塞其他能力）。
     if (net_status_service_) {
         if (!net_status_service_->start()) {
             SomeipLogAdapter::runtime().error("someip.runtime.service_start_failed",
@@ -146,6 +140,14 @@ bool SomeipDaemon::start() {
         }
     }
 
+    // 服务发现（含通用成员注册；注册在 OfferService 之前完成，fail-closed）
+    if (!startServiceDiscovery()) {
+        SomeipLogAdapter::sd().error("someip.sd.start_failed",
+            "Failed to start service discovery"
+        );
+        return false;
+    }
+
     running_ = true;
     SomeipLogAdapter::runtime().info("someip.runtime.started",
         "TBOX-SOMEIP daemon started successfully"
@@ -165,7 +167,14 @@ void SomeipDaemon::shutdown() {
 
     running_ = false;
 
-    // 停止所有服务
+    // CR-008 §生命周期/停止 顺序：StopOffer → 拒绝新请求 → 取消订阅 → 中断等待
+    // → 清理 in-flight/queue/worker → 注销 member/停止 runtime。cleanup 幂等。
+    // 1. StopOffer：先停止对外宣称可用
+    if (service_discovery_) {
+        service_discovery_->stopOfferService(config_.service_id, config_.instance_id);
+    }
+
+    // 2. 拒绝新请求、取消 TSP 下行订阅、中断等待并清理 in-flight/queue/worker
     if (net_status_service_) {
         net_status_service_->stop();
     }
@@ -178,12 +187,12 @@ void SomeipDaemon::shutdown() {
         vehicle_message_gateway_->stop();
     }
 
-    // 停止服务发现
+    // 3. 注销 member / 服务发现最终清理
     if (service_discovery_) {
         service_discovery_->shutdown();
     }
 
-    // 关闭 IPC 桥接层
+    // 4. 停止 runtime（IPC client 断开、销毁 client）
     if (ipc_bridge_) {
         ipc_bridge_->shutdown();
     }
@@ -311,40 +320,32 @@ bool SomeipDaemon::startServiceDiscovery() {
         "Starting service discovery..."
     );
 
-    auto start_time = std::chrono::steady_clock::now();
-
-    // 统一 offer TBOX-SOMEIP 聚合服务
-    bool offer_result = service_discovery_->offerService(
-        config_.service_id,
-        config_.instance_id);
-
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - start_time).count();
-
-    if (!offer_result) {
-        SomeipLogAdapter::sd().error("someip.sd.offer.failed",
-            "Failed to offer TBOX-SOMEIP service",
-            {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
-             tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
-             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
-             tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration)),
-             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
-        );
-        return false;
-    }
-
-    SomeipLogAdapter::sd().info("someip.sd.offer.succeeded",
-        "TBOX-SOMEIP service offered successfully",
-        {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
-         tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
-         tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
-         tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration))}
+    // ---- CR-008/US-011 启动诊断：通用成员精确 ID 必须由 Registry 分配 ----
+    // 缺失即 fail-closed（不注册 Method/Event/Eventgroup、不 Offer 通用 Event），
+    // 并明确指出缺失的 Registry 字段（脱敏：不记录 payload/身份/凭据）。
+    auto reg_state = [](bool present) { return present ? "resolved" : "pending"; };
+    SomeipLogAdapter::sd().info("someip.sd.registry.vehicle_message",
+        "Generic vehicle message contract B Registry assignment summary",
+        {tbox::fw::log::Field("method_exchange_vehicle_message_id",
+             tbox::fw::log::FieldValue::makeString(reg_state(config_.method_exchange_vehicle_message_id.has_value()))),
+         tbox::fw::log::Field("event_vehicle_message_id",
+             tbox::fw::log::FieldValue::makeString(reg_state(config_.event_vehicle_message_id.has_value()))),
+         tbox::fw::log::Field("eventgroup_vehicle_message_id",
+             tbox::fw::log::FieldValue::makeString(reg_state(config_.eventgroup_id.has_value())))}
     );
 
+    // 旧 FOTA 成员 ID（0x0001/0x8001）永久 reserved（CR-008/US-017）：即使配置
+    // 误填也绝不注册/复用/回退（fail-closed，无 legacy fallback）。
+    auto is_reserved_member_id = [](uint16_t id) {
+        return id == reserved_ids::REPORT_SOFTWARE_INVENTORY ||
+               id == reserved_ids::FOTA_COMMAND;
+    };
+
     // 注册通用车云消息 Method（METHOD_EXCHANGE_VEHICLE_MESSAGE，CR-008）。
-    // 精确 Method ID 由 Registry 分配（US-011）；未分配前不注册（延迟 Offer），
+    // 精确 Method ID 由 Registry 分配（US-011）；未分配前不注册（fail-closed），
     // 不猜测/占用未批准数值。
-    if (config_.method_exchange_vehicle_message_id.has_value()) {
+    if (config_.method_exchange_vehicle_message_id.has_value() &&
+        !is_reserved_member_id(config_.method_exchange_vehicle_message_id.value())) {
         const uint16_t kMethodId = config_.method_exchange_vehicle_message_id.value();
         service_discovery_->registerMethodHandler(kMethodId,
             [this, kMethodId](const SomeIpMessage& request) -> SomeIpMessage {
@@ -433,16 +434,30 @@ bool SomeipDaemon::startServiceDiscovery() {
             "Generic vehicle message method registered",
             {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(kMethodId))}
         );
+    } else if (config_.method_exchange_vehicle_message_id.has_value()) {
+        // 配置误填 reserved 旧 ID → 拒绝注册（fail-closed，无 legacy fallback）
+        SomeipLogAdapter::sd().error("someip.sd.method_register.reserved",
+            "Refusing to register reserved legacy method ID",
+            {tbox::fw::log::Field("someip_method_id", tbox::fw::log::FieldValue::makeInt(
+                 config_.method_exchange_vehicle_message_id.value())),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("rejected")),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1004"))}
+        );
     } else {
-        // Registry 未分配前不注册（延迟 Offer；US-011 不猜测未批准数值）
+        // Registry 未分配前不注册（fail-closed；US-011 不猜测未批准数值）
         SomeipLogAdapter::sd().info("someip.sd.method_register.deferred",
-            "Generic vehicle message method not registered: ID pending Registry assignment",
+            "Generic vehicle message method not registered: someip.members.vehicle_message_exchange.id pending Registry assignment",
             {}
         );
     }
 
-    // 注册通用车云消息 Event（EVENT_VEHICLE_MESSAGE 下行）并接线下行通知
-    if (config_.event_vehicle_message_id.has_value() && vehicle_message_gateway_) {
+    // 注册通用车云消息 Event（EVENT_VEHICLE_MESSAGE 下行）与对应 Eventgroup 并
+    // 接线下行通知。Event 与 Eventgroup 均须由 Registry 分配；任一缺失/非法即
+    // 不注册、不 Offer（fail-closed），不猜测/占用未批准数值。
+    if (config_.event_vehicle_message_id.has_value() &&
+        config_.eventgroup_id.has_value() &&
+        !is_reserved_member_id(config_.event_vehicle_message_id.value()) &&
+        vehicle_message_gateway_) {
         const uint16_t kEventId = config_.event_vehicle_message_id.value();
         service_discovery_->registerEventHandler(kEventId,
             [](const SomeIpMessage& notification) {
@@ -453,6 +468,10 @@ bool SomeipDaemon::startServiceDiscovery() {
                          notification.header.method_id))}
                 );
             });
+        // 事件组注册（CR-008）：精确 Eventgroup ID 由 Registry 分配；注册在
+        // OfferService 前完成，Event 随 Offer 发布（fail-closed，不回退默认值）。
+        service_discovery_->registerEventGroup(kEventId,
+            config_.eventgroup_id.value());
         vehicle_message_gateway_->setDownlinkHandler(
             [this, kEventId](const VehicleMessageFrame& downlink) {
                 // 下行：bridge worker -> EVENT_VEHICLE_MESSAGE 通知（保持顺序）
@@ -464,14 +483,33 @@ bool SomeipDaemon::startServiceDiscovery() {
                 service_discovery_->notifyEvent(kEventId, notification);
             });
         SomeipLogAdapter::sd().info("someip.sd.event_registered",
-            "Generic vehicle message event registered",
-            {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(kEventId))}
+            "Generic vehicle message event + eventgroup registered",
+            {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(kEventId)),
+             tbox::fw::log::Field("someip_eventgroup_id", tbox::fw::log::FieldValue::makeInt(
+                 static_cast<int64_t>(config_.eventgroup_id.value())))}
         );
     } else {
-        SomeipLogAdapter::sd().info("someip.sd.event_register.deferred",
-            "Generic vehicle message event not registered: ID pending Registry assignment",
-            {}
-        );
+        // fail-closed 诊断：明确指出缺失/非法的 Registry 字段（脱敏）。
+        if (config_.event_vehicle_message_id.has_value() &&
+            is_reserved_member_id(config_.event_vehicle_message_id.value())) {
+            SomeipLogAdapter::sd().error("someip.sd.event_register.reserved",
+                "Refusing to register reserved legacy event ID",
+                {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(
+                     config_.event_vehicle_message_id.value())),
+                 tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("rejected")),
+                 tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1004"))}
+            );
+        } else if (!config_.event_vehicle_message_id.has_value()) {
+            SomeipLogAdapter::sd().info("someip.sd.event_register.deferred",
+                "Generic vehicle message event not registered: someip.members.vehicle_message_downlink.id pending Registry assignment",
+                {}
+            );
+        } else {
+            SomeipLogAdapter::sd().info("someip.sd.eventgroup_register.deferred",
+                "Generic vehicle message event not offered: someip.members.vehicle_message_downlink.eventgroup_id pending Registry assignment",
+                {}
+            );
+        }
     }
 
     // 订阅客户端连接事件
@@ -481,6 +519,33 @@ bool SomeipDaemon::startServiceDiscovery() {
         [this](const ClientConnectionEvent& event) {
             handleClientConnection(event);
         });
+
+    // 统一 offer TBOX-SOMEIP 聚合服务（通用成员注册与 TSP 订阅完成后才 Offer；
+    // CR-008 §生命周期/启动）
+    auto start_time = std::chrono::steady_clock::now();
+    bool offer_result = service_discovery_->offerService(
+        config_.service_id,
+        config_.instance_id);
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start_time).count();
+    if (!offer_result) {
+        SomeipLogAdapter::sd().error("someip.sd.offer.failed",
+            "Failed to offer TBOX-SOMEIP service",
+            {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+             tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
+             tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("failed")),
+             tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration)),
+             tbox::fw::log::Field("error_code", tbox::fw::log::FieldValue::makeString("TBOX-SOMEIP-1001"))}
+        );
+        return false;
+    }
+    SomeipLogAdapter::sd().info("someip.sd.offer.succeeded",
+        "TBOX-SOMEIP service offered successfully",
+        {tbox::fw::log::Field("someip_service_id", tbox::fw::log::FieldValue::makeInt(config_.service_id)),
+         tbox::fw::log::Field("someip_instance_id", tbox::fw::log::FieldValue::makeInt(config_.instance_id)),
+         tbox::fw::log::Field("result", tbox::fw::log::FieldValue::makeString("succeeded")),
+         tbox::fw::log::Field("duration_ms", tbox::fw::log::FieldValue::makeInt(duration))}
+    );
 
     SomeipLogAdapter::sd().info("someip.sd.started",
         "Service discovery started"

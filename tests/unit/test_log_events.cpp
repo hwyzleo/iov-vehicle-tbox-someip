@@ -27,6 +27,16 @@ TEST_F(LogEventsTest, EventNameFormat) {
     EXPECT_TRUE(std::regex_match("someip.runtime.initialized", event_pattern));
     EXPECT_TRUE(std::regex_match("someip.sd.offer.succeeded", event_pattern));
     EXPECT_TRUE(std::regex_match("someip.sd.offer.failed", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.method_registered", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.method_register.deferred", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.method_register.reserved", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.event_registered", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.event_register.deferred", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.event_register.reserved", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.eventgroup_registered", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.eventgroup_register.deferred", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.sd.registry.vehicle_message", event_pattern));
+    EXPECT_TRUE(std::regex_match("someip.event.not_offered", event_pattern));
     EXPECT_TRUE(std::regex_match("someip.sd.subscription.changed", event_pattern));
     EXPECT_TRUE(std::regex_match("someip.method.request.received", event_pattern));
     EXPECT_TRUE(std::regex_match("someip.method.request.completed", event_pattern));

@@ -48,6 +48,10 @@ public:
     // I/O / SD 或其他能力（US-013）。
     virtual void subscribeVehicleMessage(std::string_view service,
                                          VehicleMessageHandler handler) = 0;
+
+    // 下行订阅健康（CR-008）：返回下行订阅是否处于活跃状态。服务端拒绝订阅
+    // 时返回 false；能力未就绪/订阅失败时，调用方不得宣称契约 B 可用（US-013）。
+    virtual bool isVehicleMessageDownlinkActive() const = 0;
 };
 
 // PROV Client 接口

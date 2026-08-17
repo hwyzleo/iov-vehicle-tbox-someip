@@ -34,6 +34,7 @@ public:
     void subscribeVehicleMessage(std::string_view, VehicleMessageHandler handler) override {
         downlink_handler_ = std::move(handler);
     }
+    bool isVehicleMessageDownlinkActive() const override { return true; }
     void pushDownlink(const VehicleMessageFrame& f) {
         if (downlink_handler_) downlink_handler_(f);
     }

@@ -57,6 +57,7 @@ public:
         const VehicleMessageFrame& frame) override;
     void subscribeVehicleMessage(std::string_view service,
                                  VehicleMessageHandler handler) override;
+    bool isVehicleMessageDownlinkActive() const override;
 
     // ---- 未迁移能力（占位，对应 facade 未就绪）----
     ErrorCode getNetStatus(NetStatusData& status) override;

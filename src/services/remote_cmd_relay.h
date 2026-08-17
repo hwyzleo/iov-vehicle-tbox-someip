@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tbox_someip/interfaces.h"
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <atomic>
@@ -39,6 +40,7 @@ private:
     
     std::atomic<bool> running_;
     std::thread worker_thread_;
+    std::condition_variable cv_;   // 中断 worker 周期性等待（stop() notify 立即唤醒）
 
     uint16_t service_id_;
     uint16_t instance_id_;

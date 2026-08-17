@@ -72,9 +72,6 @@ struct SomeIpServiceConfig {
     uint32_t minor_version = 0;
     std::string ip_address = "0.0.0.0";
     uint16_t port = 0;
-    // 事件组（CR-008 EVENT_VEHICLE_MESSAGE 下行；精确值由 Registry 分配，
-    // 运行时从 someip.yaml 读取）
-    uint16_t eventgroup_id = 0x0001;
 };
 
 // Callback types

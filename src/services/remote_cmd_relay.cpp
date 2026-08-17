@@ -120,6 +120,7 @@ void RemoteCmdRelayService::stop() {
         }
 
         running_ = false;
+        cv_.notify_all();   // 立即唤醒 worker，中断周期性等待
     }
 
     if (worker_thread_.joinable()) {
@@ -181,9 +182,12 @@ void RemoteCmdRelayService::notifyRemoteCommand(const RemoteCommand& command) {
 }
 
 void RemoteCmdRelayService::run() {
-    while (running_) {
-        // 处理远程命令
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::unique_lock<std::mutex> lock(mutex_);
+    while (running_.load()) {
+        // 周期性任务占位（处理远程命令）。用 condition_variable 等待，
+        // stop() notify 可立即中断，避免 shutdown 被固定 sleep 阻塞。
+        cv_.wait_for(lock, std::chrono::milliseconds(100),
+                     [this]() { return !running_.load(); });
     }
 }
 

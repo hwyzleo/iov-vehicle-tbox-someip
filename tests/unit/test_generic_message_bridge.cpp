@@ -41,9 +41,11 @@ public:
 
     // 下行
     VehicleMessageHandler downlink_handler_;
+    bool downlink_active_ = true;   // 订阅是否活跃（服务端拒绝 → false → DEGRADED）
     void subscribeVehicleMessage(std::string_view, VehicleMessageHandler handler) override {
         downlink_handler_ = std::move(handler);
     }
+    bool isVehicleMessageDownlinkActive() const override { return downlink_active_; }
     void pushDownlink(const VehicleMessageFrame& f) {
         if (downlink_handler_) downlink_handler_(f);
     }
@@ -131,6 +133,25 @@ TEST_F(GenericMessageBridgeTest, ExchangeDegradedWhenTspCapabilityMissing) {
     EXPECT_EQ(r.outcome, TransportOutcome::Unavailable);
     EXPECT_TRUE(bridge_.isDegraded());
     EXPECT_EQ(fake_->exchange_calls, 0);  // 不调用 TSP（US-013 不回退）
+}
+
+TEST_F(GenericMessageBridgeTest, DegradedWhenDownlinkSubscriptionRejected) {
+    // 订阅被服务端拒绝（isActive=false）→ 不得宣称契约 B 可用（US-013）
+    fake_->downlink_active_ = false;
+    bridge_.stop();
+    bridge_.start();
+    EXPECT_TRUE(bridge_.isDegraded());
+    auto r = bridge_.exchange(makeValidFrame());
+    EXPECT_EQ(r.outcome, TransportOutcome::Unavailable);
+    EXPECT_EQ(fake_->exchange_calls, 0);  // 订阅失败不调用 TSP（fail-closed）
+}
+
+TEST_F(GenericMessageBridgeTest, ReadyWhenDownlinkSubscriptionActive) {
+    fake_->downlink_active_ = true;
+    bridge_.stop();
+    bridge_.start();
+    EXPECT_FALSE(bridge_.isDegraded());
+    EXPECT_TRUE(bridge_.isReady());
 }
 
 TEST_F(GenericMessageBridgeTest, ExchangeRejectsInvalidService) {

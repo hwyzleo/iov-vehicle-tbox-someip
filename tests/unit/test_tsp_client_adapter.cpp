@@ -168,6 +168,66 @@ TEST_F(TspClientAdapterContractTest, SubscribeDownlinkEvent) {
     EXPECT_EQ(got.envelope_bytes, downlink);
 }
 
+// 注：订阅被服务端拒绝的“不得宣称契约 B 可用”逻辑在 GenericMessageBridge 层验证
+// （FakeTspClient isVehicleMessageDownlinkActive=false → DEGRADED，见
+// test_generic_message_bridge.cpp）。真实 IPC 拒绝路径当前触发 framework
+// Subscription 析构缺陷（runLoop 自终止后 cancel() 跳过 join → std::terminate），
+// 需在 iov-vehicle-tbox-framework 修复后补真实 IPC 拒绝用例（见交付说明）。
+
+// TSP 重启 + 订阅恢复：服务端停机后订阅连接断开，重启后 framework 自动重连并
+// 重新订阅，EVENT 恢复可达（CR-008：非幂等 EVENT 不盲目重放，由 TSP/云端 reconcile）。
+TEST_F(TspClientAdapterContractTest, TspRestartRecoversDownlinkSubscription) {
+    std::vector<std::byte> downlink = {std::byte{0x0a}, std::byte{0x11}, std::byte{0x22}};
+
+    std::atomic<int> received{0};
+    adapter_->subscribeVehicleMessage("vehicle.fota",
+        [&](const VehicleMessageFrame&) { received.fetch_add(1); });
+
+    // 首条 EVENT 到达（订阅就绪）
+    bool pushed1 = false;
+    for (int i = 0; i < 100 && !pushed1; ++i) {
+        pushed1 = peer_->push_downlink("vehicle.fota", downlink);
+        if (!pushed1) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    for (int i = 0; i < 100 && received.load() < 1; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_GE(received.load(), 1);
+    EXPECT_GE(peer_->subscribe_count(), 1);
+
+    // 停机（TSP 重启窗口）：订阅连接断开
+    peer_->stop();
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    // 重启（同 socket 重新 bind/listen）
+    ASSERT_TRUE(peer_->start());
+
+    // 等待订阅自动重连 + 重新订阅（subscribe_count 增加），随后 EVENT 恢复可达
+    int before = peer_->subscribe_count();
+    bool resubscribed = false;
+    for (int i = 0; i < 200 && !resubscribed; ++i) {
+        if (peer_->subscribe_count() > before) {
+            resubscribed = true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(resubscribed) << "subscription should auto-reconnect after TSP restart";
+
+    bool pushed2 = false;
+    for (int i = 0; i < 200 && !pushed2; ++i) {
+        pushed2 = peer_->push_downlink("vehicle.fota", downlink);
+        if (!pushed2) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(pushed2) << "downlink push should reach a resubscribed client";
+
+    int count_before = received.load();
+    for (int i = 0; i < 200 && received.load() <= count_before; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_GT(received.load(), count_before);
+    EXPECT_TRUE(adapter_->isVehicleMessageDownlinkActive());
+}
+
 // ---- 生命周期（真实 facade）----
 
 TEST(TspClientAdapterTest, LifecycleNoCrash) {

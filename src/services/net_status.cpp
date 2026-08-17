@@ -113,6 +113,7 @@ void NetStatusService::stop() {
         }
 
         running_ = false;
+        cv_.notify_all();   // 立即唤醒 worker，中断周期性等待
     }
 
     if (worker_thread_.joinable()) {
@@ -193,9 +194,12 @@ void NetStatusService::subscribeNetStatusChanges(NetStatusCallback callback) {
 }
 
 void NetStatusService::run() {
-    while (running_) {
-        // 定期检查网络状态
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+    std::unique_lock<std::mutex> lock(mutex_);
+    while (running_.load()) {
+        // 周期性任务占位（定期检查网络状态）。用 condition_variable 等待，
+        // stop() notify 可立即中断，避免 shutdown 被固定 5s sleep 阻塞。
+        cv_.wait_for(lock, std::chrono::seconds(5),
+                     [this]() { return !running_.load(); });
     }
 }
 

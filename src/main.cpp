@@ -128,8 +128,10 @@ int main(int argc, char* argv[]) {
         config.event_vehicle_message_id = static_cast<uint16_t>(
             cfg->getInt("someip.members.vehicle_message_downlink.id", 0));
     }
-    config.eventgroup_id = static_cast<uint32_t>(
-        cfg->getInt("someip.members.vehicle_message_downlink.eventgroup_id", config.eventgroup_id));
+    if (cfg->has("someip.members.vehicle_message_downlink.eventgroup_id")) {
+        config.eventgroup_id = static_cast<uint32_t>(
+            cfg->getInt("someip.members.vehicle_message_downlink.eventgroup_id", 0));
+    }
     config.interface_major = static_cast<uint32_t>(
         cfg->getInt("someip.members.vehicle_message_exchange.interface_major", config.interface_major));
 
@@ -182,6 +184,22 @@ int main(int argc, char* argv[]) {
     config.enable_net_status = cfg->getBool("someip.enable_net_status", true);
     config.enable_remote_cmd_relay = cfg->getBool("someip.enable_remote_cmd_relay", true);
     config.enable_vehicle_message_gateway = cfg->getBool("someip.enable_vehicle_message_gateway", true);
+
+    // CR-008/US-011 启动诊断：通用车云消息契约 B 成员精确 ID 必须由 SOME/IP
+    // Registry 分配（config/IDL/generated symbol 一致性门禁通过后回填）。
+    // 缺失即 fail-closed：daemon 不注册 Method/Event/Eventgroup、不 Offer 通用
+    // Event。此处只记录 resolved/pending 状态，不记录 ID 数值、payload 或身份。
+    auto reg_state = [](bool present) { return present ? "resolved" : "pending"; };
+    tbox::someip::SomeipLogAdapter::runtime().info(
+        "someip.registry.vehicle_message",
+        "Contract B member Registry fields: resolved=assigned by Registry; pending=not assigned (fail-closed)",
+        {tbox::fw::log::Field("method_exchange_vehicle_message_id",
+             tbox::fw::log::FieldValue::makeString(reg_state(config.method_exchange_vehicle_message_id.has_value()))),
+         tbox::fw::log::Field("event_vehicle_message_id",
+             tbox::fw::log::FieldValue::makeString(reg_state(config.event_vehicle_message_id.has_value()))),
+         tbox::fw::log::Field("eventgroup_vehicle_message_id",
+             tbox::fw::log::FieldValue::makeString(reg_state(config.eventgroup_id.has_value())))}
+    );
 
     // 6. 创建并初始化守护进程
     tbox::someip::SomeipDaemon daemon;

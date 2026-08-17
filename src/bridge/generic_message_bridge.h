@@ -70,6 +70,12 @@ private:
 
     // in-flight 预算（同步调用的并发上限）
     std::atomic<uint32_t> in_flight_{0};
+
+    // 下行订阅握手收敛窗口（CR-008/US-013）：订阅被服务端拒绝（isActive=false）
+    // 时在此窗口内被检测 → DEGRADED；daemon 不可达时连接重试中不判 DEGRADED。
+    // 本地 socket 握手毫秒级，窗口保持最小以控制健康启动开销。
+    static constexpr int kSubscribeSettleTicks = 5;          // 5 次轮询
+    static constexpr int kSubscribeSettleIntervalMs = 20;    // 20ms → 最多 ~100ms
 };
 
 } // namespace someip

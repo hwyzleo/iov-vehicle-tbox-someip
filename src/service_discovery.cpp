@@ -255,6 +255,41 @@ void ServiceDiscovery::registerEventHandler(EventId event_id, SomeIpNotification
     );
 }
 
+void ServiceDiscovery::registerEventGroup(EventId event_id, uint32_t eventgroup_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!initialized_ || !someip_service_) {
+        SomeipLogAdapter::sd().error("someip.sd.eventgroup_register.failed",
+            "ServiceDiscovery not initialized or SomeIpService not available",
+            {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(event_id))}
+        );
+        return;
+    }
+
+    someip_service_->registerEventGroup(event_id, eventgroup_id);
+    SomeipLogAdapter::sd().info("someip.sd.eventgroup_registered",
+        "Eventgroup registered",
+        {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(event_id)),
+         tbox::fw::log::Field("someip_eventgroup_id", tbox::fw::log::FieldValue::makeInt(
+             static_cast<int64_t>(eventgroup_id)))}
+    );
+}
+
+bool ServiceDiscovery::hasMethodHandler(MethodId method_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return someip_service_ && someip_service_->hasMethodHandler(method_id);
+}
+
+bool ServiceDiscovery::hasEventHandler(EventId event_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return someip_service_ && someip_service_->hasEventHandler(event_id);
+}
+
+bool ServiceDiscovery::hasEventGroup(EventId event_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return someip_service_ && someip_service_->hasEventGroup(event_id);
+}
+
 bool ServiceDiscovery::notifyEvent(EventId event_id, const SomeIpMessage& notification) {
     std::lock_guard<std::mutex> lock(mutex_);
 

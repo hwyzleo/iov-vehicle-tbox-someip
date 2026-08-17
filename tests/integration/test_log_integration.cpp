@@ -254,6 +254,7 @@ TEST_F(LogIntegrationTest, VehicleMessageGatewayIntegration) {
             return r;
         }
         void subscribeVehicleMessage(std::string_view, VehicleMessageHandler) override {}
+        bool isVehicleMessageDownlinkActive() const override { return true; }
     };
 
     auto fake_client = std::make_shared<FakeTspClientForLog>();

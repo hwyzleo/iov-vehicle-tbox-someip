@@ -55,10 +55,24 @@ void GenericMessageBridge::start() {
             "vehicle.fota",
             [this](const VehicleMessageFrame& frame) { onTspDownlink(frame); });
 
+        // 有界等待订阅握手收敛（本地 socket 毫秒级；最多 ~200ms）：订阅被服务端
+        // 拒绝（isActive=false）→ DEGRADED（US-013 不得宣称契约 B 可用）。
+        // daemon 不可达时订阅连接重试中（isActive 保持 true），运行期以
+        // Unavailable outcome 表达，不静态 DEGRADED。
+        for (int i = 0; i < kSubscribeSettleTicks; ++i) {
+            if (!tsp_->isVehicleMessageDownlinkActive()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(kSubscribeSettleIntervalMs));
+        }
+        degraded_ = !tsp_->isVehicleMessageDownlinkActive();
+
         SomeipLogAdapter::vehicle_message().info(
             "someip.vehicle_message.tsp.ready",
             "TSP generic vehicle message capability ready",
             {tbox::fw::log::Field("service", tbox::fw::log::FieldValue::makeString("vehicle.fota")),
+             tbox::fw::log::Field("downlink_active", tbox::fw::log::FieldValue::makeBool(
+                 !degraded_.load())),
              tbox::fw::log::Field("allowed_services",
                  tbox::fw::log::FieldValue::makeString(config_.limits.allowed_services.empty()
                      ? std::string() : config_.limits.allowed_services.front()))}

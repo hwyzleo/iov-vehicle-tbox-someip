@@ -373,6 +373,24 @@ public:
         event_handlers_[event_id] = std::move(handler);
     }
 
+    void registerEventGroup(EventId event_id, uint32_t eventgroup_id) override {
+        std::lock_guard<std::mutex> lock(handlers_mutex_);
+        eventgroups_[event_id] = eventgroup_id;
+    }
+
+    bool hasMethodHandler(MethodId method_id) const override {
+        std::lock_guard<std::mutex> lock(handlers_mutex_);
+        return method_handlers_.count(method_id) > 0;
+    }
+    bool hasEventHandler(EventId event_id) const override {
+        std::lock_guard<std::mutex> lock(handlers_mutex_);
+        return event_handlers_.count(event_id) > 0;
+    }
+    bool hasEventGroup(EventId event_id) const override {
+        std::lock_guard<std::mutex> lock(handlers_mutex_);
+        return eventgroups_.count(event_id) > 0;
+    }
+
     bool notifyEvent(EventId event_id, const SomeIpMessage& notification) override {
         if (!running_ || client_fd_ < 0) {
             return false;
@@ -438,9 +456,10 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> offering_{false};
 
-    std::mutex handlers_mutex_;
+    mutable std::mutex handlers_mutex_;
     std::unordered_map<MethodId, SomeIpRequestHandler> method_handlers_;
     std::unordered_map<EventId, SomeIpNotificationHandler> event_handlers_;
+    std::unordered_map<EventId, uint32_t> eventgroups_;   // Event -> Eventgroup（CR-008）
 
     // TCP transport members
     int listen_fd_{-1};
@@ -542,10 +561,13 @@ public:
                     {tbox::fw::log::Field("result",
                         tbox::fw::log::FieldValue::makeString(registered ? "registered" : "deregistered"))}
                 );
-                // 已请求 Offer 时，登记完成后（重新）Offer，覆盖路由重启场景。
+                // 已请求 Offer 时，登记完成后（重新）Offer，覆盖路由重启场景；
+                // 并重新 offer 已注册 Eventgroup 的 Event（fail-closed：无 Eventgroup
+                // 的 Event 不 Offer）。
                 if (registered && offering_ && app_) {
                     app_->offer_service(config_.service_id, config_.instance_id,
                                         config_.major_version, config_.minor_version);
+                    offerPendingEvents();
                 }
             });
 
@@ -576,6 +598,10 @@ public:
             std::unique_lock<std::mutex> lk(state_mutex_);
             state_cv_.wait_for(lk, std::chrono::seconds(5),
                                [this]() { return registered_.load(); });
+        }
+        // 登记完成后立即 offer 已注册 Eventgroup 的 Event（不再懒加载；fail-closed）。
+        if (registered_) {
+            offerPendingEvents();
         }
         return true;
     }
@@ -611,18 +637,39 @@ public:
         event_handlers_[event_id] = std::move(handler);
     }
 
+    void registerEventGroup(EventId event_id, uint32_t eventgroup_id) override {
+        std::lock_guard<std::mutex> lk(handlers_mutex_);
+        eventgroups_[event_id] = eventgroup_id;
+    }
+
+    bool hasMethodHandler(MethodId method_id) const override {
+        std::lock_guard<std::mutex> lk(handlers_mutex_);
+        return method_handlers_.count(method_id) > 0;
+    }
+    bool hasEventHandler(EventId event_id) const override {
+        std::lock_guard<std::mutex> lk(handlers_mutex_);
+        return event_handlers_.count(event_id) > 0;
+    }
+    bool hasEventGroup(EventId event_id) const override {
+        std::lock_guard<std::mutex> lk(handlers_mutex_);
+        return eventgroups_.count(event_id) > 0;
+    }
+
     bool notifyEvent(EventId event_id, const SomeIpMessage& notification) override {
         if (!app_ || !initialized_ || !registered_ || !offering_) {
             return false;
         }
-        // 首次通知前登记并 offer 事件（eventgroup 由 Registry 分配，运行时从
-        // someip.yaml 读取）。精确 eventgroup/事件语义需 Orin 端到端验证。
+        // fail-closed：Event 必须先经 registerEventGroup 注册 Eventgroup 并在
+        // start()/state handler 中完成 offer 后才允许 notify；未注册（如
+        // Eventgroup 未分配）不对外下发，绝不回退默认 Eventgroup 值（US-017）。
         {
             std::lock_guard<std::mutex> lk(handlers_mutex_);
             if (events_offered_.find(event_id) == events_offered_.end()) {
-                app_->offer_event(config_.service_id, config_.instance_id, event_id,
-                                  {config_.eventgroup_id}, vsomeip::event_type_e::ET_EVENT);
-                events_offered_.insert(event_id);
+                SomeipLogAdapter::event().warn("someip.event.not_offered",
+                    "Event not offered (Eventgroup not registered); notify suppressed",
+                    {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(event_id))}
+                );
+                return false;
             }
         }
         auto pl = runtime_->create_payload();
@@ -661,6 +708,29 @@ public:
     uint16_t getBoundPort() const override { return config_.port; }
 
 private:
+    // offer 已注册 Eventgroup 的 Event（start() 登记完成后 / state handler 重连后调用）。
+    // 仅在 app 已登记且 eventgroups_ 存在时 offer；未注册 Eventgroup 的 Event 不 Offer（fail-closed）。
+    void offerPendingEvents() {
+        if (!app_ || !registered_) {
+            return;
+        }
+        std::lock_guard<std::mutex> lk(handlers_mutex_);
+        for (const auto& [eid, eg] : eventgroups_) {
+            if (events_offered_.find(eid) != events_offered_.end()) {
+                continue;
+            }
+            app_->offer_event(config_.service_id, config_.instance_id, eid,
+                              {eg}, vsomeip::event_type_e::ET_EVENT);
+            events_offered_.insert(eid);
+            SomeipLogAdapter::event().info("someip.event.offered",
+                "Event offered with registered Eventgroup",
+                {tbox::fw::log::Field("someip_event_id", tbox::fw::log::FieldValue::makeInt(eid)),
+                 tbox::fw::log::Field("someip_eventgroup_id", tbox::fw::log::FieldValue::makeInt(
+                     static_cast<int64_t>(eg)))}
+            );
+        }
+    }
+
     void onMessage(const std::shared_ptr<vsomeip::message>& _request) {
         if (!_request) {
             return;
@@ -736,9 +806,10 @@ private:
     std::mutex state_mutex_;
     std::condition_variable state_cv_;
 
-    std::mutex handlers_mutex_;
+    mutable std::mutex handlers_mutex_;
     std::unordered_map<MethodId, SomeIpRequestHandler> method_handlers_;
     std::unordered_map<EventId, SomeIpNotificationHandler> event_handlers_;
+    std::unordered_map<EventId, uint32_t> eventgroups_;   // Event -> Eventgroup（CR-008）
     std::unordered_set<EventId> events_offered_;   // 已 offer 的事件
 };
 

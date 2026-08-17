@@ -44,6 +44,19 @@ public:
     void registerEventHandler(EventId event_id, SomeIpNotificationHandler handler);
 
     /**
+     * @brief 注册事件组（CR-008 EVENT_VEHICLE_MESSAGE 下行；精确 Eventgroup ID 由
+     * Registry 分配，注册在 OfferService 前完成；未注册 Eventgroup 的 Event 不 Offer）
+     */
+    void registerEventGroup(EventId event_id, uint32_t eventgroup_id);
+
+    /**
+     * @brief 注册/Offer 状态只读查询（诊断与测试）
+     */
+    bool hasMethodHandler(MethodId method_id) const;
+    bool hasEventHandler(EventId event_id) const;
+    bool hasEventGroup(EventId event_id) const;
+
+    /**
      * @brief 发布事件通知（CR-008 EVENT_VEHICLE_MESSAGE 下行通道）
      */
     bool notifyEvent(EventId event_id, const SomeIpMessage& notification);

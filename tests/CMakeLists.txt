@@ -97,6 +97,10 @@ configure_someip_test(test_log_events)
 add_executable(test_someip_context unit/test_someip_context.cpp ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
 configure_someip_test(test_someip_context)
 
+# 守护进程生命周期 / 通用成员注册链（CR-008 fail-closed）测试
+add_executable(test_someip_daemon unit/test_someip_daemon.cpp ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
+configure_someip_test(test_someip_daemon)
+
 # ============================================================
 # 集成测试
 # ============================================================
@@ -123,6 +127,7 @@ add_test(NAME EnvelopeInteropTests COMMAND test_envelope_interop)
 add_test(NAME LogAdapterTests COMMAND test_log_adapter)
 add_test(NAME LogEventsTests COMMAND test_log_events)
 add_test(NAME SomeipContextTests COMMAND test_someip_context)
+add_test(NAME SomeipDaemonTests COMMAND test_someip_daemon)
 add_test(NAME SomeipIntegrationTests COMMAND test_someip_integration)
 add_test(NAME LogIntegrationTests COMMAND test_log_integration)
 add_test(NAME SomeipTspIntegrationTests COMMAND test_someip_tsp_integration)

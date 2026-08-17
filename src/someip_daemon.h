@@ -31,6 +31,9 @@ public:
     
     // 获取运行状态
     bool isRunning() const;
+
+    // 诊断/测试钩子：只读访问 ServiceDiscovery（注册状态查询）
+    ServiceDiscovery* serviceDiscovery() const { return service_discovery_.get(); }
     
 
 

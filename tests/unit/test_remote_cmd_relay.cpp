@@ -22,6 +22,7 @@ public:
         return r;
     }
     void subscribeVehicleMessage(std::string_view, VehicleMessageHandler) override {}
+    bool isVehicleMessageDownlinkActive() const override { return false; }
 };
 
 class RemoteCmdRelayTest : public ::testing::Test {
