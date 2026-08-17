@@ -34,7 +34,7 @@ TEST(ConfigLoadTest, BoundedDefaultsAreSane) {
     EXPECT_GT(cfg.generic_message.downlink_queue_capacity, 0u);
     EXPECT_GT(cfg.generic_message.tsp_timeout_ms, 0u);
     EXPECT_EQ(cfg.generic_message.limits.allowed_services, (std::vector<std::string>{"vehicle.fota"}));
-    EXPECT_EQ(cfg.generic_message.limits.allowed_protocol_majors, (std::vector<uint32_t>{1}));
+    EXPECT_EQ(cfg.generic_message.limits.allowed_protocol_versions, (std::vector<std::string>{"fota-v1"}));
     // tsp_timeout < request_deadline（CR-008 严格校验）
     EXPECT_LT(cfg.generic_message.tsp_timeout_ms, cfg.bridge_request_deadline_ms);
 }

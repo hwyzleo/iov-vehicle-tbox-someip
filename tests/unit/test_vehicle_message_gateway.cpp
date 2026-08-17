@@ -41,14 +41,14 @@ public:
 
 VehicleMessageFrame makeValidFrame() {
     vehicle::common::v1::VehicleMessageEnvelope env;
-    env.set_request_id(1);
+    env.set_request_id("req-0001");
     env.set_timestamp_ms(1000);
-    env.set_protocol_version(1);
+    env.set_protocol_version("fota-v1");
     env.set_service("vehicle.fota");
     env.set_payload_type("vehicle.fota.v1.CheckTask");
     env.set_payload("{}");
     env.set_message_id("msg-001");
-    env.set_message_kind("REQUEST");
+    env.set_message_kind(vehicle::common::v1::MESSAGE_KIND_REQUEST);
     const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     env.set_expire_at_ms(now + 60000);

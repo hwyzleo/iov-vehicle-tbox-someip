@@ -78,11 +78,30 @@ struct VehicleMessageResponseFrame {
     std::optional<TransportError> error;
 };
 
+// 调用链关联（与 vehicle.common.v1.TraceContext 逐项一致；CR-008 契约校准）。
+struct EnvelopeTraceContext {
+    std::string trace_id;
+    std::string parent_span_id;
+    std::string trace_flags;
+};
+
+// 消息方向（与 vehicle.common.v1.MessageKind 逐项一致；CR-008 契约校准）。
+// UNSPECIFIED 不得作为有效生产消息方向（准入校验拒绝）。
+enum class EnvelopeMessageKind : int {
+    Unspecified = 0,
+    Request = 1,
+    Response = 2,
+    Event = 3,
+};
+
 // 公共 Envelope 解码视图（SOMEIP 准入/关联/路由用；payload 保持不透明）
+// 字段类型与 VEH-PROTO canonical 对齐（CR-008 契约校准 2026-08-17）：
+//   request_id/protocol_version 为 string（如 protocol_version="fota-v1"），
+//   message_kind 为枚举，trace_context 为 TraceContext 消息。
 struct VehicleMessageEnvelope {
-    int64_t request_id = 0;
+    std::string request_id;
     int64_t timestamp_ms = 0;
-    uint32_t protocol_version = 0;
+    std::string protocol_version;      // 如 "fota-v1"（非数值 major）
     std::string device_id;
     std::string vin;
     std::string vehicle_task_id;
@@ -92,10 +111,10 @@ struct VehicleMessageEnvelope {
     std::vector<std::byte> payload;   // opaque bytes
     std::string message_id;
     std::string correlation_id;
-    std::string message_kind;
+    EnvelopeMessageKind message_kind = EnvelopeMessageKind::Unspecified;
     std::string service;
     int64_t expire_at_ms = 0;
-    std::string trace_context;
+    EnvelopeTraceContext trace_context;
     size_t serialized_length = 0;     // 原始 envelope 字节长度（准入用）
 };
 

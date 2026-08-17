@@ -12,9 +12,11 @@ namespace tbox {
 namespace someip {
 
 // 资源/allowlist 限制（someip.yaml generic_message.*；有界默认由代码/容量测试回填）
+// protocol_version 为字符串协议版本（VEH-PROTO canonical，如 "fota-v1"）；
+// 不使用数值 major（CR-008 契约校准 2026-08-17）。
 struct VehicleMessageLimits {
-    std::vector<std::string> allowed_services = {"vehicle.fota"};   // 首期且当前仅 vehicle.fota
-    std::vector<uint32_t> allowed_protocol_majors = {1};
+    std::vector<std::string> allowed_services = {"vehicle.fota"};        // 首期且当前仅 vehicle.fota
+    std::vector<std::string> allowed_protocol_versions = {"fota-v1"};    // 与 generic_message.allowed_protocol_versions 对齐
     uint32_t max_envelope_bytes = 16384;   // 序列化 Envelope 总长上限
     uint32_t max_payload_bytes = 8192;     // payload(10) 上限
 };

@@ -43,7 +43,7 @@ allowed_keys:
         eventgroup_id: { type: int, required: false, min: 0, max: 65535 }
     generic_message:
       allowed_services: { type: list, required: true, items: [vehicle.fota], no_vehicle_ota: true }
-      allowed_protocol_majors: { type: list, required: true, items: [1] }
+      allowed_protocol_versions: { type: list, required: true, items: [fota-v1] }
       max_envelope_bytes: { type: int, required: true, min: 1, max: 1048576 }
       max_payload_bytes: { type: int, required: true, min: 1, max: 1048576 }
       max_in_flight: { type: int, required: true, min: 1, max: 1024 }

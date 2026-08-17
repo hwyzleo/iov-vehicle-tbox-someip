@@ -1,6 +1,6 @@
 // TBOX-SOMEIP-DSN-CR-008: 通用车云消息公共 Envelope。
 //
-// VEH-PROTO 为协议文档 SSOT；各服务自备其所需 proto（CR-008 D3 决策）。
+// VEH-PROTO 为协议文档 SSOT；各服务自备所需 proto（CR-008 D3 决策）。
 // 本文件定义 TBOX-SOMEIP 只解码的公共 Envelope：
 //   - payload(10) 承载不透明 bytes（vehicle.fota.v1.* 业务 payload），SOMEIP
 //     只记录其长度做资源准入，绝不解析内部 Task/Consent/Package/Execution/
@@ -10,44 +10,72 @@
 //   - 禁止在 Envelope 外重复定义 payload_bytes / PayloadType / 业务身份。
 //
 // 与 VEH-PROTO、CGW-FOTA、TBOX-TSP 和云端以同一 release-set / golden payload
-// 验证（CR-008 §取代与迁移/测试矩阵）。本文件不得私改 VEH-PROTO 同名契约语义。
+// 验证（CR-008 §取代与迁移/测试矩阵）。
+//
+// 【契约校准 2026-08-17】本文件字段号、类型、presence 与 enum 定义与 VEH-PROTO
+// canonical（CGW-FOTA-DSN-CR-011 / TBOX-TSP-DSN-CR-009 / iov-cloud-proto-vehicle-
+// common 同源 envelope.proto）逐项一致：
+//   * request_id(1)=string、protocol_version(3)=string（如 "fota-v1"）、
+//     message_kind(13)=MessageKind enum、trace_context(16)=optional TraceContext；
+//   * vehicle_task_id/execution_id/idempotency_key/correlation_id/expire_at_ms
+//     =optional（presence 与 canonical 对齐，不得改回必填/隐式默认）。
+// 本文件不得私改 VEH-PROTO 同名契约语义；任何字段类型/枚举/编号变更必须与
+// 同 release-set 的 CGW-FOTA / TSP / 云端 / golden payload 原子升级。
 
 syntax = "proto3";
 
 package vehicle.common.v1;
 
+option cc_enable_arenas = true;
+
+// 消息方向/形态。
+enum MessageKind {
+  MESSAGE_KIND_UNSPECIFIED = 0;  // 无效生产消息，不得作为有效方向
+  MESSAGE_KIND_REQUEST = 1;      // 请求
+  MESSAGE_KIND_RESPONSE = 2;     // 响应
+  MESSAGE_KIND_EVENT = 3;        // 下行事件/单向事件
+}
+
+// 跨 CGW、TBOX 与云端的调用链关联（非业务身份/幂等身份/安全凭据）。
+message TraceContext {
+  string trace_id = 1;
+  optional string parent_span_id = 2;
+  optional string trace_flags = 3;
+}
+
 // 通用车云消息 Envelope（SOME/IP 侧只消费本消息做准入、关联与路由）。
 message VehicleMessageEnvelope {
-  // 内部请求标识（SOMEIP 不重新生成业务身份；CGW/云端语义）
-  int64 request_id = 1;
+  // 业务请求标识（跨一次业务操作的多个传输消息保持不变；SOMEIP 不重新生成）
+  string request_id = 1;
   // 消息生成时间戳（ms，Unix epoch）
   int64 timestamp_ms = 2;
-  // 协议版本（major；本 CR 允许 major=1，见 generic_message.allowed_protocol_majors）
-  uint32 protocol_version = 3;
+  // Envelope/车云消息协议版本，如 "fota-v1"（非数值 major；SOMEIP 按字符串
+  // 与 generic_message.allowed_protocol_versions 匹配）
+  string protocol_version = 3;
   // 设备标识（日志按 Identifier 脱敏，SOMEIP 不输出明文）
   string device_id = 4;
   // VIN（日志按 Identifier 脱敏，SOMEIP 不输出明文）
   string vin = 5;
   // 车辆任务标识（透明，不解析）
-  string vehicle_task_id = 6;
+  optional string vehicle_task_id = 6;
   // 执行标识（透明，不解析）
-  string execution_id = 7;
+  optional string execution_id = 7;
   // 幂等键（上行保留，供 CGW durable 状态收敛）
-  string idempotency_key = 8;
+  optional string idempotency_key = 8;
   // payload 类型（fully-qualified name，如 vehicle.fota.v1.CheckTask）
   string payload_type = 9;
   // 不透明业务 payload（bytes；SOMEIP 只做长度/预算准入）
   bytes payload = 10;
   // 消息标识（请求/响应关联，response correlation_id 指向请求 message_id）
   string message_id = 11;
-  // 关联标识
-  string correlation_id = 12;
-  // 消息种类（方向校验用，如 REQUEST/RESPONSE/EVENT）
-  string message_kind = 13;
+  // 关联标识（响应/明确关联时才填）
+  optional string correlation_id = 12;
+  // 消息方向（REQUEST/RESPONSE/EVENT；UNSPECIFIED 不得作为有效生产消息）
+  MessageKind message_kind = 13;
   // 服务域（本 CR allowlist 首期为 vehicle.fota）
   string service = 14;
   // 过期时间戳（ms，Unix epoch；TTL 准入用）
-  int64 expire_at_ms = 15;
+  optional int64 expire_at_ms = 15;
   // 链路追踪上下文（透传）
-  string trace_context = 16;
+  optional TraceContext trace_context = 16;
 }

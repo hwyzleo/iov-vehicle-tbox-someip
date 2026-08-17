@@ -24,9 +24,10 @@ bool containsService(const std::vector<std::string>& services,
     return false;
 }
 
-bool containsMajor(const std::vector<uint32_t>& majors, uint32_t major) {
-    for (auto m : majors) {
-        if (m == major) return true;
+bool containsVersion(const std::vector<std::string>& versions,
+                     const std::string& v) {
+    for (const auto& s : versions) {
+        if (s == v) return true;
     }
     return false;
 }
@@ -106,22 +107,27 @@ VehicleMessageValidation VehicleMessageValidator::validate(
     e.payload = toBytes(env.payload());
     e.message_id = env.message_id();
     e.correlation_id = env.correlation_id();
-    e.message_kind = env.message_kind();
+    e.message_kind = static_cast<EnvelopeMessageKind>(env.message_kind());
     e.service = env.service();
     e.expire_at_ms = env.expire_at_ms();
-    e.trace_context = env.trace_context();
+    if (env.has_trace_context()) {
+        e.trace_context.trace_id = env.trace_context().trace_id();
+        e.trace_context.parent_span_id = env.trace_context().parent_span_id();
+        e.trace_context.trace_flags = env.trace_context().trace_flags();
+    }
     e.serialized_length = total_len;
 
-    // 3) Envelope major / 初始化校验
-    if (!containsMajor(limits_.allowed_protocol_majors, e.protocol_version)) {
+    // 3) protocol_version / 初始化校验（字符串版本，如 "fota-v1"；
+    //    不得把 protocol_version 当不存在的数值 protocol_major 读取）
+    if (!containsVersion(limits_.allowed_protocol_versions, e.protocol_version)) {
         result.ok = false;
         result.outcome = TransportOutcome::VersionMismatch;
         result.reason = "protocol_version_mismatch";
         return result;
     }
 
-    // 4) messageKind / direction 基础校验
-    if (e.message_kind.empty()) {
+    // 4) messageKind / direction 基础校验（UNSPECIFIED 不得作为有效生产消息）
+    if (e.message_kind == EnvelopeMessageKind::Unspecified) {
         result.ok = false;
         result.outcome = TransportOutcome::ProtocolError;
         result.reason = "missing_message_kind";

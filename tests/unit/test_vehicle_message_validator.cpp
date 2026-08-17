@@ -28,15 +28,15 @@ VehicleMessageFrame makeFrame(vehicle::common::v1::VehicleMessageEnvelope env) {
 // 构造合法 Envelope（默认 vehicle.fota / CheckTask / 未来 TTL / 小 payload）
 vehicle::common::v1::VehicleMessageEnvelope makeValidEnvelope() {
     vehicle::common::v1::VehicleMessageEnvelope env;
-    env.set_request_id(1);
+    env.set_request_id("req-0001");
     env.set_timestamp_ms(1000);
-    env.set_protocol_version(1);
+    env.set_protocol_version("fota-v1");
     env.set_service("vehicle.fota");
     env.set_payload_type("vehicle.fota.v1.CheckTask");
     env.set_payload("{\"task_id\":\"t-1\"}");
     env.set_message_id("msg-001");
-    env.set_correlation_id("");
-    env.set_message_kind("REQUEST");
+    env.set_message_kind(vehicle::common::v1::MESSAGE_KIND_REQUEST);
+    env.mutable_trace_context()->set_trace_id("trace-0001");
     const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     env.set_expire_at_ms(now + 60000);
@@ -46,7 +46,7 @@ vehicle::common::v1::VehicleMessageEnvelope makeValidEnvelope() {
 VehicleMessageLimits defaultLimits() {
     VehicleMessageLimits l;
     l.allowed_services = {"vehicle.fota"};
-    l.allowed_protocol_majors = {1};
+    l.allowed_protocol_versions = {"fota-v1"};
     l.max_envelope_bytes = 16384;
     l.max_payload_bytes = 8192;
     return l;
@@ -112,13 +112,36 @@ TEST(VehicleMessageValidatorTest, PayloadTypeWrongServicePrefixRejected) {
     EXPECT_EQ(r.outcome, TransportOutcome::Rejected);
 }
 
-TEST(VehicleMessageValidatorTest, ProtocolMajorMismatch) {
+TEST(VehicleMessageValidatorTest, ProtocolVersionMismatch) {
     auto env = makeValidEnvelope();
-    env.set_protocol_version(2);  // 仅允许 major=1
+    env.set_protocol_version("fota-v2");  // 仅允许 "fota-v1"
     VehicleMessageValidator v(defaultLimits());
     auto r = v.validate(makeFrame(env));
     EXPECT_FALSE(r.ok);
     EXPECT_EQ(r.outcome, TransportOutcome::VersionMismatch);
+}
+
+TEST(VehicleMessageValidatorTest, ProtocolVersionIsStringNotNumericMajor) {
+    // 契约校准：protocol_version 为字符串（如 "fota-v1"），不存在数值 protocol_major。
+    auto env = makeValidEnvelope();
+    env.set_protocol_version("fota-v1");
+    VehicleMessageValidator v(defaultLimits());
+    auto r = v.validate(makeFrame(env));
+    EXPECT_TRUE(r.ok);
+    EXPECT_EQ(r.envelope.protocol_version, "fota-v1");
+    EXPECT_EQ(r.envelope.request_id, "req-0001");
+    EXPECT_EQ(r.envelope.message_kind, EnvelopeMessageKind::Request);
+    EXPECT_EQ(r.envelope.trace_context.trace_id, "trace-0001");
+}
+
+TEST(VehicleMessageValidatorTest, UnspecifiedMessageKindProtocolError) {
+    auto env = makeValidEnvelope();
+    env.set_message_kind(vehicle::common::v1::MESSAGE_KIND_UNSPECIFIED);
+    VehicleMessageValidator v(defaultLimits());
+    auto r = v.validate(makeFrame(env));
+    EXPECT_FALSE(r.ok);
+    EXPECT_EQ(r.outcome, TransportOutcome::ProtocolError);
+    EXPECT_EQ(r.reason, "missing_message_kind");
 }
 
 TEST(VehicleMessageValidatorTest, TtlExpiredRejected) {
@@ -145,7 +168,7 @@ TEST(VehicleMessageValidatorTest, MissingMessageIdProtocolError) {
 
 TEST(VehicleMessageValidatorTest, MissingMessageKindProtocolError) {
     auto env = makeValidEnvelope();
-    env.set_message_kind("");
+    env.set_message_kind(vehicle::common::v1::MESSAGE_KIND_UNSPECIFIED);
     VehicleMessageValidator v(defaultLimits());
     auto r = v.validate(makeFrame(env));
     EXPECT_FALSE(r.ok);

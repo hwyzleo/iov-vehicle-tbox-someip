@@ -80,6 +80,11 @@ add_executable(test_vehicle_message_gateway unit/test_vehicle_message_gateway.cp
     ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
 configure_someip_test(test_vehicle_message_gateway)
 
+# 通用车云消息：Envelope 契约互操作（descriptor + golden payload，CR-008 契约校准）
+add_executable(test_envelope_interop unit/test_envelope_interop.cpp
+    ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
+configure_someip_test(test_envelope_interop)
+
 # 日志适配器测试
 add_executable(test_log_adapter unit/test_log_adapter.cpp ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
 configure_someip_test(test_log_adapter)
@@ -114,6 +119,7 @@ configure_someip_test(test_someip_tsp_integration)
 add_test(NAME VehicleMessageValidatorTests COMMAND test_vehicle_message_validator)
 add_test(NAME GenericMessageBridgeTests COMMAND test_generic_message_bridge)
 add_test(NAME VehicleMessageGatewayTests COMMAND test_vehicle_message_gateway)
+add_test(NAME EnvelopeInteropTests COMMAND test_envelope_interop)
 add_test(NAME LogAdapterTests COMMAND test_log_adapter)
 add_test(NAME LogEventsTests COMMAND test_log_events)
 add_test(NAME SomeipContextTests COMMAND test_someip_context)

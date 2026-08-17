@@ -138,13 +138,9 @@ int main(int argc, char* argv[]) {
     if (!allowed_services.empty()) {
         config.generic_message.limits.allowed_services = std::move(allowed_services);
     }
-    auto allowed_majors_str = cfg->getStringList("someip.generic_message.allowed_protocol_majors");
-    if (!allowed_majors_str.empty()) {
-        config.generic_message.limits.allowed_protocol_majors.clear();
-        for (const auto& m : allowed_majors_str) {
-            config.generic_message.limits.allowed_protocol_majors.push_back(
-                static_cast<uint32_t>(std::stoul(m)));
-        }
+    auto allowed_versions = cfg->getStringList("someip.generic_message.allowed_protocol_versions");
+    if (!allowed_versions.empty()) {
+        config.generic_message.limits.allowed_protocol_versions = std::move(allowed_versions);
     }
     config.generic_message.limits.max_envelope_bytes = static_cast<uint32_t>(
         cfg->getInt("someip.generic_message.max_envelope_bytes", config.generic_message.limits.max_envelope_bytes));

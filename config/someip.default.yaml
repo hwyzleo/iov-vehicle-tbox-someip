@@ -47,7 +47,7 @@ someip:
   # 通用车云消息限制（CR-008 §配置增量；有界默认由代码/容量测试回填）
   generic_message:
     allowed_services: [vehicle.fota]
-    allowed_protocol_majors: [1]
+    allowed_protocol_versions: [fota-v1]
     max_envelope_bytes: 16384
     max_payload_bytes: 8192
     max_in_flight: 64

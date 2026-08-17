@@ -56,7 +56,7 @@ ALLOWED_PRODUCTION_KEYS = {
     "members": {"vehicle_message_exchange", "vehicle_message_downlink"},
     "vehicle_message_exchange": {"type", "id", "interface_major"},
     "vehicle_message_downlink": {"type", "id", "eventgroup_id"},
-    "generic_message": {"allowed_services", "allowed_protocol_majors",
+    "generic_message": {"allowed_services", "allowed_protocol_versions",
                         "max_envelope_bytes", "max_payload_bytes", "max_in_flight",
                         "downlink_queue_capacity", "worker_count", "tsp_timeout_ms"},
 }
@@ -167,8 +167,8 @@ def check_schema(cfg, dev_mode):
     for svc in (gm.get("allowed_services") or []):
         if svc in FORBIDDEN_SERVICES:
             err(f"A: forbidden service alias {svc!r} (CR-008 no vehicle.ota fallback)")
-    _check_list_int("someip.generic_message.allowed_protocol_majors",
-                    gm.get("allowed_protocol_majors"), [1])
+    _check_list_str("someip.generic_message.allowed_protocol_versions",
+                    gm.get("allowed_protocol_versions"), ["fota-v1"])
     _check_bounded("someip.generic_message.max_envelope_bytes", gm.get("max_envelope_bytes"), 1, 1048576)
     _check_bounded("someip.generic_message.max_payload_bytes", gm.get("max_payload_bytes"), 1, 1048576)
     _check_bounded("someip.generic_message.max_in_flight", gm.get("max_in_flight"), 1, 1024)

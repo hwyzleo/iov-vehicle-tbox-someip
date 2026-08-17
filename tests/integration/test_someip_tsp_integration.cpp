@@ -32,15 +32,21 @@ VehicleMessageFrame makeEnvelopeFrame(const std::string& message_id,
                                       const std::string& correlation_id,
                                       const std::string& message_kind) {
     vehicle::common::v1::VehicleMessageEnvelope env;
-    env.set_request_id(1);
+    env.set_request_id("req-0001");
     env.set_timestamp_ms(1000);
-    env.set_protocol_version(1);
+    env.set_protocol_version("fota-v1");
     env.set_service("vehicle.fota");
     env.set_payload_type("vehicle.fota.v1.CheckTask");
     env.set_payload("{}");
     env.set_message_id(message_id);
     if (!correlation_id.empty()) env.set_correlation_id(correlation_id);
-    env.set_message_kind(message_kind);
+    if (message_kind == "RESPONSE") {
+        env.set_message_kind(vehicle::common::v1::MESSAGE_KIND_RESPONSE);
+    } else if (message_kind == "EVENT") {
+        env.set_message_kind(vehicle::common::v1::MESSAGE_KIND_EVENT);
+    } else {
+        env.set_message_kind(vehicle::common::v1::MESSAGE_KIND_REQUEST);
+    }
     const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     env.set_expire_at_ms(now + 60000);
@@ -58,7 +64,7 @@ VehicleMessageFrame makeEnvelopeFrame(const std::string& message_id,
 GenericMessageConfig makeCfg() {
     GenericMessageConfig c;
     c.limits.allowed_services = {"vehicle.fota"};
-    c.limits.allowed_protocol_majors = {1};
+    c.limits.allowed_protocol_versions = {"fota-v1"};
     c.limits.max_envelope_bytes = 16384;
     c.limits.max_payload_bytes = 8192;
     c.max_in_flight = 4;
