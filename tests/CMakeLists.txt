@@ -32,7 +32,7 @@ set(SERVICE_SOURCES
 
 # 公共测试依赖（使用自定义 test_main.cpp 代替 gtest_main，以便在退出前 flush Logger）
 set(TEST_LIBS GTest::gtest pthread ${SOMEIP_FRAMEWORK_LIBS})
-set(TEST_INCLUDES ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
+set(TEST_INCLUDES ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)
 set(TEST_RPATH "${GTEST_LIB_DIR};${GTEST_MAIN_LIB_DIR}")
 
 # ============================================================
@@ -104,6 +104,10 @@ configure_someip_test(test_someip_integration)
 add_executable(test_log_integration integration/test_log_integration.cpp ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
 configure_someip_test(test_log_integration)
 
+# SOMEIP→TSP 集成测试（真实 tsp_client + mock TSP IPC peer，CR-008/配对 TSP CR）
+add_executable(test_someip_tsp_integration integration/test_someip_tsp_integration.cpp ${CMAKE_SOURCE_DIR}/tests/test_main.cpp ${SERVICE_SOURCES})
+configure_someip_test(test_someip_tsp_integration)
+
 # ============================================================
 # 注册测试
 # ============================================================
@@ -115,6 +119,7 @@ add_test(NAME LogEventsTests COMMAND test_log_events)
 add_test(NAME SomeipContextTests COMMAND test_someip_context)
 add_test(NAME SomeipIntegrationTests COMMAND test_someip_integration)
 add_test(NAME LogIntegrationTests COMMAND test_log_integration)
+add_test(NAME SomeipTspIntegrationTests COMMAND test_someip_tsp_integration)
 
 # ============================================================
 # CR-005: TSP client adapter 测试

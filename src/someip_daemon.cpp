@@ -214,11 +214,14 @@ bool SomeipDaemon::initializeIpcClients() {
         "Using framework-ipc domain client facades (tsp/prov)"
     );
 
-    // TSP: 通用车云消息上行/下行链路走 tbox::tsp_client（CR-005/CR-008）
+    // TSP: 通用车云消息上行/下行链路走 tbox::tsp_client（CR-005/CR-008/配对 TSP CR）
     TspAdapterConfig tsp_cfg;
     tsp_cfg.socket_path = config_.tsp.socket_path;
     tsp_cfg.default_timeout_ms = config_.bridge_request_deadline_ms;
     tsp_cfg.event_queue_size = config_.bridge_queue_capacity;
+    // ExchangeOptions 上送 TSP（须 < SOME/IP Method deadline，CR-008）
+    tsp_cfg.exchange_timeout_ms = config_.generic_message.tsp_timeout_ms;
+    tsp_cfg.max_response_bytes = config_.generic_message.limits.max_envelope_bytes;
     auto tsp_adapter = std::make_shared<TspClientAdapter>(tsp_cfg);
     if (!tsp_adapter->initialize()) {
         // 非致命：后端 daemon 可能尚未就绪。门面常驻服务照常启动，

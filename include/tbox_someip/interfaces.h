@@ -34,10 +34,9 @@ public:
     virtual void subscribeRemoteCommands(RemoteCommandCallback callback) = 0;
 
     // ---- CR-008 通用车云消息契约 ----
-    // 通用 exchange/downlink 能力探测（US-013）：
-    // 后续版本化 tbox::tsp_client 通用消息 API 未就绪或版本不兼容时返回 false，
-    // GenericMessageBridge 进入 DEGRADED，对外返回 VersionMismatch/Unavailable，
-    // 不回退解析 OTA payload 或本地拼装云端协议。
+    // 通用 exchange/downlink 能力探测（US-013）：真实 tbox::tsp_client 通用消息
+    // API（配对 TSP CR）已就绪时返回 true；版本兼容/daemon 可达性由运行时
+    // outcome（VersionMismatch/Unavailable）按请求体现，不静态 DEGRADED。
     virtual bool supportsVehicleMessage() const = 0;
 
     // 上行：通用 request/response。SOMEIP 保持 messageId/correlationId/
