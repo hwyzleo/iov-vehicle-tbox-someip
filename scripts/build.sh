@@ -5,12 +5,17 @@
 # 用法: ./scripts/build.sh [选项]
 #
 # 选项:
-#   --clean      清理构建目录后重新构建
-#   --no-test    跳过测试步骤
-#   --install    构建后安装到系统目录
-#   --no-mock    使用真实 vsomeip 实现（默认使用 mock）
-#   --release    Release 模式构建（默认 Debug）
-#   --help       显示帮助信息
+#   --clean          清理构建目录后重新构建
+#   --no-test        跳过测试步骤
+#   --install        构建后安装到 INSTALL_PREFIX
+#   --prefix <DIR>   安装前缀（默认取 framework tbox-env.sh 的 TBOX_PREFIX）
+#   --no-mock        使用真实 vsomeip 实现（默认使用 mock）
+#   --release        Release 模式构建（默认 Debug）
+#   --help           显示帮助信息
+#
+# 安装前缀的单一来源是 framework 仓库的 scripts/tbox-env.sh（TBOX_PREFIX）：
+#   本地开发：  ./scripts/build.sh --install          # -> ${HOME}/.local（无需 sudo）
+#   生产/CI：   TBOX_PREFIX=/opt/tbox ./scripts/build.sh --install
 #
 
 set -e  # 遇到错误立即退出
@@ -43,6 +48,8 @@ RUN_TESTS=true
 INSTALL_AFTER_BUILD=false
 USE_MOCK=true
 BUILD_TYPE="Debug"
+# 安装前缀来自 framework tbox-env.sh（TBOX_PREFIX，默认 ${HOME}/.local），--prefix 可覆盖
+INSTALL_PREFIX="${TBOX_PREFIX}"
 
 # framework-ipc 域 client facade（TSP/PROV）安装包目录（默认取自 TBOX_PREFIX）
 # 门面服务始终经真实 IPC 接入后端，无 mock 桩。
@@ -54,20 +61,22 @@ show_help() {
     echo "用法: $0 [选项]"
     echo ""
     echo "选项:"
-    echo "  --clean      清理构建目录后重新构建"
-    echo "  --no-test    跳过测试步骤"
-    echo "  --install    构建后安装到系统目录"
-    echo "  --no-mock    使用真实 vsomeip 实现（默认使用 mock）"
-    echo "  --release    Release 模式构建（默认 Debug）"
-    echo "  --help       显示帮助信息"
+    echo "  --clean          清理构建目录后重新构建"
+    echo "  --no-test        跳过测试步骤"
+    echo "  --install        构建后安装到 --prefix 指定的目录"
+    echo "  --prefix <DIR>   安装前缀（默认 ${TBOX_PREFIX}，来自 framework tbox-env.sh）"
+    echo "  --no-mock        使用真实 vsomeip 实现（默认使用 mock）"
+    echo "  --release        Release 模式构建（默认 Debug）"
+    echo "  --help           显示帮助信息"
     echo ""
     echo "示例:"
-    echo "  $0                  # 完整构建（Debug + mock + 测试）"
-    echo "  $0 --no-test        # 仅构建，跳过测试"
-    echo "  $0 --clean          # 清理后重新构建"
-    echo "  $0 --release        # Release 模式构建"
-    echo "  $0 --no-mock        # 使用真实 vsomeip 实现"
-    echo "  $0 --clean --install  # 清理构建并安装"
+    echo "  $0                            # 完整构建（Debug + mock + 测试）"
+    echo "  $0 --no-test                  # 仅构建，跳过测试"
+    echo "  $0 --clean                    # 清理后重新构建"
+    echo "  $0 --release                  # Release 模式构建"
+    echo "  $0 --no-mock                  # 使用真实 vsomeip 实现"
+    echo "  $0 --clean --install          # 清理构建并安装到 ${TBOX_PREFIX}"
+    echo "  TBOX_PREFIX=/opt/tbox $0 --install  # 生产前缀（单一旋钮，无需改文件）"
 }
 
 # 打印带颜色的消息
@@ -223,12 +232,16 @@ configure_project() {
     print_info "  SOME/IP 模式: $([ "$USE_MOCK" = true ] && echo "Mock" || echo "Real vsomeip")"
     print_info "  IPC 模式: Real framework-ipc (TSP/PROV)"
     print_info "  构建类型: ${BUILD_TYPE}"
+    print_info "  安装前缀: ${INSTALL_PREFIX}"
 
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
 
+    # CMAKE_INSTALL_PREFIX 必须在 configure 阶段给定：GNUInstallDirs 的
+    # BINDIR/SYSCONFDIR 等会基于它计算，cmake --install 阶段只消费其固化值
     cmake .. \
         -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+        -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
         -DTBoxFramework_DIR="${TBoxFramework_DIR}" \
         -DTboxTspClient_DIR="${TBoxTspClient_DIR}" \
         -DTboxProvClient_DIR="${TBoxProvClient_DIR}" \
@@ -296,11 +309,18 @@ install_project() {
         return 0
     fi
 
-    print_info "安装项目..."
+    print_info "安装项目到: ${INSTALL_PREFIX}"
 
     cd "$BUILD_DIR"
 
-    sudo make install
+    # 仅在前缀不可写时才用 sudo（如 /usr/local）；
+    # 默认的 ${HOME}/.local 无需提权，避免产出 root 属主的文件
+    if mkdir -p "${INSTALL_PREFIX}" 2>/dev/null && [ -w "${INSTALL_PREFIX}" ]; then
+        cmake --install .
+    else
+        print_warning "前缀 ${INSTALL_PREFIX} 不可写，使用 sudo 安装"
+        sudo cmake --install .
+    fi
 
     if [ $? -ne 0 ]; then
         print_error "安装失败"
@@ -322,6 +342,7 @@ show_summary() {
     echo "构建模式:   $([ "$USE_MOCK" = true ] && echo "Mock SOME/IP" || echo "Real vsomeip")"
     echo "IPC 模式:   Real framework-ipc (TSP/PROV)"
     echo "构建类型:   ${BUILD_TYPE}"
+    echo "安装前缀:   ${INSTALL_PREFIX}"
     echo ""
     echo "构建产物:"
     echo "  - 主程序:      ${BUILD_DIR}/src/tbox_someip"
@@ -335,6 +356,14 @@ show_summary() {
     if [ "$RUN_TESTS" = true ]; then
         echo "  ${BUILD_DIR}/tests/test_vehicle_message_gateway"
         echo "  ${BUILD_DIR}/tests/test_someip_integration"
+    fi
+    if [ "$INSTALL_AFTER_BUILD" = true ]; then
+        echo ""
+        echo "安装位置:"
+        echo "  - daemon:    ${INSTALL_PREFIX}/bin/tbox_someip"
+        echo "  - systemd:   ${INSTALL_PREFIX}/lib/systemd/system/tbox-someip.service"
+        echo "  - 配置:      ${INSTALL_PREFIX}/etc/tbox/conf.d/someip.yaml"
+        echo "  - vsomeip:   ${INSTALL_PREFIX}/etc/tbox/someip/vsomeip.json"
     fi
     echo "=========================================="
 }
@@ -353,6 +382,18 @@ parse_args() {
                 ;;
             --install)
                 INSTALL_AFTER_BUILD=true
+                shift
+                ;;
+            --prefix)
+                if [ -z "$2" ]; then
+                    print_error "--prefix 需要一个目录参数"
+                    exit 1
+                fi
+                INSTALL_PREFIX="$2"
+                shift 2
+                ;;
+            --prefix=*)
+                INSTALL_PREFIX="${1#--prefix=}"
                 shift
                 ;;
             --no-mock)
