@@ -36,6 +36,7 @@ VehicleMessageFrame makeEnvelopeFrame(const std::string& message_id,
     env.set_timestamp_ms(1000);
     env.set_protocol_version("fota-v1");
     env.set_service("vehicle.fota");
+    env.set_vin("VIN12345678901234");   // 云侧硬契约：Envelope.vin 必填且 17 位
     env.set_payload_type("vehicle.fota.v1.CheckTask");
     env.set_payload("{}");
     env.set_message_id(message_id);

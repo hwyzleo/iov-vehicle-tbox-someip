@@ -40,6 +40,22 @@ std::vector<std::byte> toBytes(const std::string& s) {
     return out;
 }
 
+// VIN 契约（ISO 3779 长度）：17 位大写字母/数字。
+// 云侧（VAGW/IOV-OTA）以 Kafka Key(VIN) = Envelope.vin 为硬契约，空/畸形 VIN 必被
+// 判为不可恢复契约错误并丢入 DLQ；车内网关必须 fail-closed，不把注定被拒的消息
+// 发往云端（FOTA 上行 Envelope.vin 由 CCU-FOTA 从 DIAG 解析后盖章）。
+constexpr size_t kVinLength = 17;
+
+bool is_valid_vin(const std::string& vin) {
+    if (vin.size() != kVinLength) return false;
+    for (char c : vin) {
+        const bool upper = (c >= 'A' && c <= 'Z');
+        const bool digit = (c >= '0' && c <= '9');
+        if (!upper && !digit) return false;
+    }
+    return true;
+}
+
 } // namespace
 
 VehicleMessageValidator::VehicleMessageValidator(const VehicleMessageLimits& limits)
@@ -139,6 +155,21 @@ VehicleMessageValidation VehicleMessageValidator::validate(
         result.ok = false;
         result.outcome = TransportOutcome::Rejected;
         result.reason = "service_not_allowed";
+        return result;
+    }
+
+    // 5.1) VIN 契约（上下行同用）：空/畸形 VIN 必然被云侧判为不可恢复契约错误
+    //      （Kafka Key(VIN) ≠ Envelope.vin），在车内网关 fail-closed。
+    if (e.vin.empty()) {
+        result.ok = false;
+        result.outcome = TransportOutcome::Rejected;
+        result.reason = "vin_missing";
+        return result;
+    }
+    if (!is_valid_vin(e.vin)) {
+        result.ok = false;
+        result.outcome = TransportOutcome::Rejected;
+        result.reason = "vin_invalid";
         return result;
     }
 

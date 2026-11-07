@@ -60,6 +60,7 @@ VehicleMessageFrame makeValidFrame(bool set_correlation = false) {
     env.set_timestamp_ms(1000);
     env.set_protocol_version("fota-v1");
     env.set_service("vehicle.fota");
+    env.set_vin("VIN12345678901234");   // 云侧硬契约：Envelope.vin 必填且 17 位
     env.set_payload_type("vehicle.fota.v1.CheckTask");
     env.set_payload("{}");
     env.set_message_id("msg-001");
@@ -197,6 +198,7 @@ TEST_F(GenericMessageBridgeTest, CorrelationMismatchProtocolError) {
     env.set_request_id("req-2");
     env.set_protocol_version("fota-v1");
     env.set_service("vehicle.fota");
+    env.set_vin("VIN12345678901234");   // 云侧硬契约：Envelope.vin 必填且 17 位
     env.set_payload_type("vehicle.fota.v1.CheckTaskResult");
     env.set_payload("{}");
     env.set_message_id("msg-999");       // 响应 message_id

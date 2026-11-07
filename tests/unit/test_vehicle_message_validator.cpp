@@ -32,6 +32,7 @@ vehicle::common::v1::VehicleMessageEnvelope makeValidEnvelope() {
     env.set_timestamp_ms(1000);
     env.set_protocol_version("fota-v1");
     env.set_service("vehicle.fota");
+    env.set_vin("VIN12345678901234");   // 云侧硬契约：Envelope.vin 必填且 17 位
     env.set_payload_type("vehicle.fota.v1.CheckTask");
     env.set_payload("{\"task_id\":\"t-1\"}");
     env.set_message_id("msg-001");
@@ -62,7 +63,36 @@ TEST(VehicleMessageValidatorTest, ValidEnvelopeAccepted) {
     EXPECT_EQ(r.envelope.service, "vehicle.fota");
     EXPECT_EQ(r.envelope.payload_type, "vehicle.fota.v1.CheckTask");
     EXPECT_EQ(r.envelope.message_id, "msg-001");
+    EXPECT_EQ(r.envelope.vin, "VIN12345678901234");
     EXPECT_GT(r.envelope.serialized_length, 0u);
+}
+
+TEST(VehicleMessageValidatorTest, MissingVinRejected) {
+    // 云侧以 Kafka Key(VIN)=Envelope.vin 为硬契约，空 VIN 必须在车内网关 fail-closed
+    VehicleMessageValidator v(defaultLimits());
+    auto env = makeValidEnvelope();
+    env.clear_vin();
+    auto r = v.validate(makeFrame(env));
+    EXPECT_FALSE(r.ok);
+    EXPECT_EQ(r.outcome, TransportOutcome::Rejected);
+    EXPECT_EQ(r.reason, "vin_missing");
+}
+
+TEST(VehicleMessageValidatorTest, InvalidVinRejected) {
+    VehicleMessageValidator v(defaultLimits());
+
+    auto short_vin = makeValidEnvelope();
+    short_vin.set_vin("VIN1234");
+    auto r1 = v.validate(makeFrame(short_vin));
+    EXPECT_FALSE(r1.ok);
+    EXPECT_EQ(r1.outcome, TransportOutcome::Rejected);
+    EXPECT_EQ(r1.reason, "vin_invalid");
+
+    auto lowercase = makeValidEnvelope();
+    lowercase.set_vin("vin123456789012345");
+    auto r2 = v.validate(makeFrame(lowercase));
+    EXPECT_FALSE(r2.ok);
+    EXPECT_EQ(r2.reason, "vin_invalid");
 }
 
 TEST(VehicleMessageValidatorTest, EmptyEnvelopeRejected) {

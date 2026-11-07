@@ -51,7 +51,7 @@ std::string buildRequest() {
     env.set_timestamp_ms(1700000000123LL);
     env.set_protocol_version("fota-v1");
     env.set_device_id("dev-A");
-    env.set_vin("VIN12345678901234567");
+    env.set_vin("VIN12345678901234");
     env.set_vehicle_task_id("vt-1");
     env.set_execution_id("ex-1");
     env.set_idempotency_key("ik-1");
@@ -74,7 +74,7 @@ std::string buildResponse() {
     env.set_timestamp_ms(1700000100000LL);
     env.set_protocol_version("fota-v1");
     env.set_device_id("dev-A");
-    env.set_vin("VIN12345678901234567");
+    env.set_vin("VIN12345678901234");
     env.set_payload_type("vehicle.fota.v1.TaskCheckResponse");
     env.set_payload(std::string("\x08\x01\x10\x00", 4));
     env.set_message_id("msg-901");
@@ -92,7 +92,7 @@ std::string buildDownlink() {
     env.set_timestamp_ms(1700000200000LL);
     env.set_protocol_version("fota-v1");
     env.set_device_id("dev-A");
-    env.set_vin("VIN12345678901234567");
+    env.set_vin("VIN12345678901234");
     env.set_payload_type("vehicle.fota.v1.StageResultReport");
     env.set_payload(std::string("\x08\x02", 2));
     env.set_message_id("evt-001");
